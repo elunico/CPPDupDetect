@@ -8,11 +8,16 @@
 #include <FL/Fl_Progress.H>
 #include <FL/Fl_Tree.H>
 #include <FL/Fl_Window.H>
-#include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include "fileutils.hpp"
 
 class DupDetectWindow : public Fl_Window {
+   public:
+    using HashType = DirectoryHasher::HashType;
+    using PathType = DirectoryHasher::PathType;
+
    private:
     Fl_Button*   My_selectDirButton{};
     Fl_Button*   My_startScanButton{};
@@ -20,11 +25,12 @@ class DupDetectWindow : public Fl_Window {
     Fl_Output*   My_selectedDirOutput{};
     Fl_Output*   My_currentTargetFile{};
     Fl_Progress* My_scanProgressBar{};
+    Fl_Button*   My_deleteItemButton{};
     Fl_Tree*     My_resultsTree{};
     bool         scanning{false};
 
     void updateTable(
-        std::map<std::string, std::vector<std::string>>& duplicateFiles);
+        std::unordered_map<HashType, std::vector<PathType>>& duplicateFiles);
 
    public:
     DupDetectWindow(int w, int h);

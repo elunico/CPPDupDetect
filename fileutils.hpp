@@ -3,8 +3,8 @@
 
 #include <filesystem>
 #include <iostream>
-#include <map>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "fllock.hpp"
 #include "shautils.hpp"
@@ -26,8 +26,8 @@ struct DirectoryHasher {
     using PathType = std::string;
     using HashType = std::string;
 
-    PathType                                  path;
-    std::map<HashType, std::vector<PathType>> duplicates;
+    PathType                                            path;
+    std::unordered_map<HashType, std::vector<PathType>> duplicates;
 
     std::size_t get_progress() const
     {
@@ -93,44 +93,5 @@ struct DirectoryHasher {
     std::size_t                                   progress;
     std::size_t                                   total;
 };
-
-template <typename T, typename U>
-void scan_directory(const std::string&                               path,
-                    std::map<std::string, std::vector<std::string>>& duplicates,
-                    T                                                onProgress,
-                    U                                                keepScan)
-{
-    std::cout << "Scanning directory: " << path << std::endl;
-
-    {
-        FLLock l;
-        onProgress(0, false);
-    }
-    auto file_iterator = std::filesystem::recursive_directory_iterator(path);
-    std::map<uintmax_t, std::vector<std::string>> size_map;
-    std::size_t                                   progress = 0;
-    for (const auto& entry : file_iterator) {
-        if (!keepScan()) {
-            std::cout << "Scan cancelled." << std::endl;
-            return;
-        }
-        if (entry.is_regular_file()) {
-            uintmax_t file_size = entry.file_size();
-            size_map[file_size].push_back(entry.path().string());
-            char outputBuffer[65];
-            sha256_file(const_cast<char*>(entry.path().string().c_str()),
-                        outputBuffer);
-            duplicates[std::string(outputBuffer)].push_back(
-                entry.path().string());
-            {
-                FLLock l;
-                onProgress(progress += 1, false);
-            }
-        }
-    }
-    std::cout << "Finished scanning directory: " << path << std::endl;
-    FLLock l;
-    onProgress(progress, true);
-}
 
 #endif  // DUPDETECT_FILEUTILS_HPP
