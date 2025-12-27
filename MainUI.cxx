@@ -89,7 +89,7 @@ DupDetectWindow* DupDetectWindow::create()
 {
     DupDetectWindow* w;
     {
-        auto* o = new DupDetectWindow(770, 707);
+        auto* o = new DupDetectWindow(770, 565);
         w       = o;
         (void) w;
         o->box(FL_FLAT_BOX);
