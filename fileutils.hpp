@@ -65,6 +65,12 @@ struct DirectoryHasher {
 
     std::optional<std::tuple<PathType, HashType>> next()
     {
+        if (!is_first) {
+            // Only invalidate the iterator after completing the step. but let the first entry happen.
+            ++iterator;
+        } else {
+            is_first = false;
+        }
         if (iterator == std::filesystem::end(iterator)) {
             return std::nullopt;
         }
@@ -77,13 +83,15 @@ struct DirectoryHasher {
             duplicates[std::string(outputBuffer)].push_back(
                 entry.path().string());
             ++progress;
-        }
-        ++iterator;
         return std::make_tuple(entry.path().string(),
                                std::string(outputBuffer));
+        } else {
+            return std::make_tuple(entry.path().string(), "<directory>");
+        }
     }
 
    private:
+       bool is_first = true;
     std::filesystem::recursive_directory_iterator iterator;
     std::size_t                                   progress;
     std::size_t                                   total;

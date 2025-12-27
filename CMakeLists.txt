@@ -10,6 +10,7 @@ option(RELEASE_BUILD "Build in release mode" OFF)
 file(GLOB_RECURSE SOURCES "./*.cxx")
 
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
 
 if(RELEASE_BUILD)

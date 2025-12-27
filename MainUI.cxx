@@ -91,7 +91,11 @@ DupDetectWindow* DupDetectWindow::create()
             w->My_scanProgressBar->maximum(100);
         }  // Fl_Progress* o
         {
+#ifdef __APPLE__
             auto       text_width = fl_width("Currently Hashing:");
+#else
+            auto       text_width = 100;
+#endif
             Fl_Output* o =
                 new Fl_Output(text_width + 17, 61, 740 - 2 - text_width, 28,
                               "Currently Hashing:");
