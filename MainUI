@@ -1,0 +1,38 @@
+# data file for the Fltk User Interface Designer (fluid)
+version 1.0404
+header_name {.h}
+code_name {.cxx}
+class DupDetect {open
+} {
+  Function {create()} {open
+  } {
+    Fl_Window {} {open
+      xywh {458 493 770 507} type Double
+      class DupDetectWindow visible
+    } {
+      Fl_Button {} {
+        label {Choose Directory}
+        tooltip {Choose a directory to scan for duplicates} xywh {15 15 132 28} color 7 selection_color 48 align 128
+      }
+      Fl_Output {} {
+        label {Directory:}
+        xywh {229 15 366 28} color 48
+      }
+      Fl_Button {} {
+        label Scan
+        xywh {685 15 70 28}
+      }
+      Fl_Progress {} {
+        label {Scan Progress}
+        xywh {15 61 740 24}
+      }
+      Fl_Tree {} {selected
+        xywh {15 107 740 385}
+      }
+      Fl_Check_Button {} {
+        label Recurse
+        xywh {603 15 78 28} down_box DOWN_BOX
+      }
+    }
+  }
+}

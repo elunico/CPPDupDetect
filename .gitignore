@@ -1,0 +1,16 @@
+.DS_Store
+.cache
+.idea
+.vscode
+*.o
+*.obj
+*.exe
+*.out
+*.log
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+main 
+ninja-build/
+build/
