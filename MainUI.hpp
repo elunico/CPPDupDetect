@@ -2,6 +2,14 @@
 
 #ifndef MainUI_h
 #define MainUI_h
+#if WIN32
+
+#pragma comment (lib,"Gdiplus.lib") // This can be used in Visual Studio, but CMake handles linking
+#pragma comment(lib, "Ws2_32.lib")
+#pragma comment(lib, "comctl32.lib")
+
+#endif
+
 #include <FL/Fl.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Output.H>
