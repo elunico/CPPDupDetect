@@ -13,6 +13,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <memory>
 #include "fileutils.hpp"
 #include "survivorchoice.hpp"
 
@@ -34,6 +35,7 @@ class DupDetectWindow : public Fl_Window {
     Fl_Output*   My_currentTargetFile{};
     Fl_Progress* My_scanProgressBar{};
     Fl_Button*   My_deleteItemButton{};
+    Fl_Button*   My_removeItemButton{};
     Fl_Tree*     My_resultsTree{};
     bool         scanning{false};
 
@@ -47,9 +49,11 @@ class DupDetectWindow : public Fl_Window {
     std::string choose_survivor(std::vector<std::string> const& files) const;
 
     std::string choose_survivor_after_delete(Fl_Tree_Item *parent, Fl_Tree_Item *old_survivor);
+
+    bool ask_for_choice(); 
    public:
     DupDetectWindow(int w, int h);
-    ~DupDetectWindow() override;
+    ~DupDetectWindow() noexcept override;
 
     static DupDetectWindow* create();
 };

@@ -2,6 +2,7 @@
 
 #include "MainUI.hpp"
 #include <FL/Enumerations.H>
+#include <FL/Fl_Window.H>
 #include <FL/fl_ask.H>
 #include <FL/Fl_Tree_Item.H>
 #include <FL/Fl_Widget.H>
@@ -12,6 +13,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -21,8 +23,8 @@
 #include "fileutils.hpp"
 #include "fllock.hpp"
 #include "survivorchoice.hpp"
-#include "utils.hpp"
 #include "uiutils.hpp"
+#include "utils.hpp"
 
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
@@ -30,7 +32,24 @@ int* const DupDetectWindow::parent_sentinel   = new int(2);
 DupDetectWindow::DupDetectWindow(int w, int h) : Fl_Window(w, h)
 {
 }
-DupDetectWindow::~DupDetectWindow() = default;
+
+DupDetectWindow::~DupDetectWindow() noexcept {
+    Fl_Window::~Fl_Window();
+}
+
+bool DupDetectWindow::ask_for_choice()
+{
+    auto choicer = std::make_unique<SurvivorChoice>(this);
+    choicer->show();
+
+    if (choicer->was_cancelled()) {
+        fl_alert("No selection made. Cancelling scan");
+        return false;
+    }
+
+    choice = choicer->get_choice();
+    return true;
+}
 
 std::string DupDetectWindow::choose_survivor_after_delete(
     Fl_Tree_Item* parent,
@@ -170,8 +189,7 @@ DupDetectWindow* DupDetectWindow::create()
 {
     DupDetectWindow* w;
     {
-        auto* o = new DupDetectWindow(770, 565);
-        w       = o;
+        auto *o = new DupDetectWindow(770, 565);
         (void) w;
         o->box(FL_FLAT_BOX);
         o->color(FL_BACKGROUND_COLOR);
@@ -182,6 +200,7 @@ DupDetectWindow* DupDetectWindow::create()
         o->labelcolor(FL_FOREGROUND_COLOR);
         o->align(Fl_Align(FL_ALIGN_TOP));
         o->when(FL_WHEN_RELEASE);
+        w       = std::move(o);
         {
             Fl_Button* o = new Fl_Button(15, 15, 132, 28, "Choose Directory");
             o->tooltip("Choose a directory to scan for duplicates");
@@ -225,21 +244,50 @@ DupDetectWindow* DupDetectWindow::create()
             w->My_deleteItemButton =
                 new Fl_Button(15, 510, 132, 28, "Delete Duplicates");
         }
-
+        {
+            w->My_removeItemButton =
+                new Fl_Button(157, 510, 132, 28, "Ignore Entry");
+        }
         o->end();
     }  // DupDetectWindow* o
+
+    w->My_removeItemButton->callback(
+        []([[maybe_unused]] auto* widget, auto* win) {
+            auto* ui   = static_cast<DupDetectWindow*>(win);
+            auto* item = ui->My_resultsTree->first_selected_item();
+
+            if (item == nullptr) {
+                fl_alert("No selection!");
+                return ;
+            }
+            
+            if (item->user_data() == parent_sentinel) {
+                // we have a parent
+                // lets not show it but not actually do anything
+                ui->My_resultsTree->remove(item);
+                return;
+            }
+            fl_alert(
+                "Can only ignore hash values. Select a hash to ignore it.");
+        },
+        w);
 
     w->My_deleteItemButton->callback(
         []([[maybe_unused]] Fl_Widget* w, void* data) {
             auto* ui   = static_cast<DupDetectWindow*>(data);
             auto* item = ui->My_resultsTree->first_selected_item();
+            if (item == nullptr) {
+                fl_alert("No selection");
+                return ;
+            }
             ::output(item->label());
-            // check != parent_sentintel bc a child can have nullptr OR survivor_sentinel for user_data
+            // check != parent_sentintel bc a child can have nullptr OR
+            // survivor_sentinel for user_data
             if (item->user_data() != parent_sentinel) {
                 // delete a single file
                 // ask for confirmation
                 auto result = confirm("Are you sure you want to delete %s.",
-                                     item->label());
+                                      item->label());
                 if (result != ConfirmResult::YES) {
                     return;
                 }
@@ -275,14 +323,16 @@ DupDetectWindow* DupDetectWindow::create()
                 }
 
                 if (child_count == 1) {
-                    fl_alert("There exists ONLY ONE file matching this hash left. To delete it, select it and delete it explicitly");
-                    return; 
+                    fl_alert(
+                        "There exists ONLY ONE file matching this hash left. "
+                        "To delete it, select it and delete it explicitly");
+                    return;
                 }
-                
-                auto  result      = confirm(
+
+                auto result = confirm(
                     "Warning you are about to delete %d files. ALL "
-                          "files under this hash except the newest will be "
-                          "deleted. Do you want to continue?",
+                    "files under this hash except the newest will be "
+                    "deleted. Do you want to continue?",
                     child_count - 1);
                 if (result != ConfirmResult::YES) {
                     return;
@@ -329,6 +379,8 @@ DupDetectWindow* DupDetectWindow::create()
             }
 
             if (ui->scanning) {
+                // if we are scanning and we click this button
+                // we should cancel the scan and update the UI
                 {
                     FLLock l;
                     ui->display_not_scanning();
@@ -336,17 +388,14 @@ DupDetectWindow* DupDetectWindow::create()
                 ui->scanning = false;
                 return;
             } else {
-                auto choicer = new SurvivorChoice(ui);
-                choicer->show();
+                // if we are not scanning we will ask for a strategy
+                // update the ui and spawn a thread to start the scan
+                ui->scanning = true;
 
-                if (choicer->was_cancelled()) {
-                    fl_alert("No selection made. Cancelling scan");
+                if (!ui->ask_for_choice()) {
                     return;
                 }
 
-                ui->choice = choicer->get_choice();
-
-                ui->scanning = true;
                 {
                     FLLock l;
                     ui->My_startScanButton->label("Cancel Scan");
@@ -363,6 +412,8 @@ DupDetectWindow* DupDetectWindow::create()
                     while (auto result = hasher.next()) {
                         ::output("Hashed: ", std::get<0>(*(result)), " -> ",
                                  std::get<1>(*(result)));
+                        // check to see if the user has cancelled
+                        // if so, stop, update the ui, and end the thread
                         if (!ui->scanning) {
                             break;
                         }
