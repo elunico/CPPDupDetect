@@ -9,7 +9,7 @@
 #include <FL/Fl_Window.H>
 #include <FL/Fl_Text_Display.H>
 
-enum struct SurvivorChoiceType { OLDEST, NEWEST, RANDOM };
+enum struct SurvivorChoiceType { NEWEST, OLDEST, RANDOM };
 
 struct SurvivorChoice : Fl_Window {
   private: 
@@ -27,14 +27,15 @@ struct SurvivorChoice : Fl_Window {
         
         choices = new Fl_Choice(20, 20, 250, 30);
 
-        choices->add("Oldest File Survives");
+        // WARN: the order of these choices must match the order of cases in the SurvivorChoiceType enum
         choices->add("Newest File Survives");
+        choices->add("Oldest File Survives");
         choices->add("Random File Survives");
         choices->value(0);
 
         go_button = new Fl_Button(20, 60, 120, 24, "Ok");
         go_button->callback(
-            [](auto* widget, void* win) {
+            []([[maybe_unused]] auto* widget, void* win) {
                 SurvivorChoice* window = static_cast<SurvivorChoice*>(win);
                 window->hide();
                 window->m_was_cancelled = false; 

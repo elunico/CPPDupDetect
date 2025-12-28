@@ -12,7 +12,6 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
-#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -23,6 +22,7 @@
 #include "fllock.hpp"
 #include "survivorchoice.hpp"
 #include "utils.hpp"
+#include "uiutils.hpp"
 
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
@@ -238,9 +238,9 @@ DupDetectWindow* DupDetectWindow::create()
             if (item->user_data() != parent_sentinel) {
                 // delete a single file
                 // ask for confirmation
-                auto result = fl_ask("Are you sure you want to delete %s.",
+                auto result = confirm("Are you sure you want to delete %s.",
                                      item->label());
-                if (result != 1) {
+                if (result != ConfirmResult::YES) {
                     return;
                 }
                 // this is a specific file that the user chose to delete
@@ -269,12 +269,22 @@ DupDetectWindow* DupDetectWindow::create()
                 // Delete all duplicates
                 // confirm with the user first
                 auto child_count = item->children();
-                int  result      = fl_ask(
+                if (child_count == 0) {
+                    fl_alert("Nothing to delete!");
+                    return;
+                }
+
+                if (child_count == 1) {
+                    fl_alert("There exists ONLY ONE file matching this hash left. To delete it, select it and delete it explicitly");
+                    return; 
+                }
+                
+                auto  result      = confirm(
                     "Warning you are about to delete %d files. ALL "
                           "files under this hash except the newest will be "
                           "deleted. Do you want to continue?",
                     child_count - 1);
-                if (result != 1) {
+                if (result != ConfirmResult::YES) {
                     return;
                 }
                 ::output("Will delete all duplicates except newest");
