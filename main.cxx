@@ -3,7 +3,7 @@
 int main()
 {
     Fl::lock();
-    DupDetectWindow* window = DupDetectWindow::create();
+    auto window = DupDetectWindow::create();
     window->show();
     return Fl::run();
 }
