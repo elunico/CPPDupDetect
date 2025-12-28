@@ -15,20 +15,20 @@ void output(Args&&... args)
 #else
 
 template <typename... Args>
-inline constexpr void debug_output([[maybe_unused]] Args&&... args)
+inline constexpr void output([[maybe_unused]] Args&&... args)
 {
-    return ;
+    return;
 }
 
-#endif 
+#endif
 
 #ifdef NDEBUG
 
-#define debug_output(...) (void)0
+#define debug_output(...) (void) 0
 
 #else
 
-#define debug_output(...) output(__VA_ARGS__)
+#define debug_output(...) ::output(__VA_ARGS__)
 
 #endif  // NDEBUG
 

@@ -40,7 +40,7 @@ DupDetectWindow::~DupDetectWindow() noexcept {
 bool DupDetectWindow::ask_for_choice()
 {
     auto choicer = std::make_unique<SurvivorChoiceWindow>(this);
-    choicer->show();
+    choicer->show_and_wait();
 
     if (choicer->was_cancelled()) {
         fl_alert("No selection made. Cancelling scan");

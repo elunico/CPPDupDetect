@@ -6,7 +6,7 @@ include_directories(.)
 
 option(RELEASE_BUILD "Build in release mode" OFF)
 
-file(GLOB_RECURSE SOURCES "./*.cxx")
+file(GLOB SOURCES "./*.cpp")
 
 if(WIN32)
 set(CMAKE_CXX_STANDARD 20)
