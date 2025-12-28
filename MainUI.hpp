@@ -4,21 +4,29 @@
 #define MainUI_h
 #include <FL/Fl.H>
 #include <FL/Fl_Button.H>
+#include <FL/Fl_Menu_Item.H>
 #include <FL/Fl_Output.H>
 #include <FL/Fl_Progress.H>
 #include <FL/Fl_Tree.H>
+#include <FL/Fl_Tree_Item.H>
 #include <FL/Fl_Window.H>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include "fileutils.hpp"
+#include "survivorchoice.hpp"
 
 class DupDetectWindow : public Fl_Window {
    public:
     using HashType = DirectoryHasher::HashType;
     using PathType = DirectoryHasher::PathType;
 
+    static int * const survivor_sentinel;
+    static int * const parent_sentinel;
+    
    private:
+    SurvivorChoiceType choice; 
+    
     Fl_Button*   My_selectDirButton{};
     Fl_Button*   My_startScanButton{};
     Fl_Button*   My_cancelScanButton{};
@@ -32,6 +40,13 @@ class DupDetectWindow : public Fl_Window {
     void updateTable(
         std::unordered_map<HashType, std::vector<PathType>>& duplicateFiles);
 
+    void display_not_scanning();
+
+    void reset_progress(int min, int max); 
+
+    std::string choose_survivor(std::vector<std::string> const& files) const;
+
+    std::string choose_survivor_after_delete(Fl_Tree_Item *parent, Fl_Tree_Item *old_survivor);
    public:
     DupDetectWindow(int w, int h);
     ~DupDetectWindow() override;
