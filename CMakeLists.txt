@@ -9,10 +9,10 @@ option(RELEASE_BUILD "Build in release mode" OFF)
 file(GLOB_RECURSE SOURCES "./*.cxx")
 
 if(WIN32)
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -DFAST_RANDOM /I \"C:/Program Files (x86)/FLTK/include\" /DWIN32 /D_WINDOWS") # Use faster but less random number generator
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -DFAST_RANDOM /g /I \"C:/Program Files (x86)/FLTK/include\" /DWIN32 /D_WINDOWS") # Use faster but less random number generator
 
 
 include_directories("C:\\Program Files\\OpenSSL-Win64-ARM\\include")
