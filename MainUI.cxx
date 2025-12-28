@@ -6,6 +6,7 @@
 #include <FL/fl_ask.H>
 #include <FL/Fl_Tree_Item.H>
 #include <FL/Fl_Widget.H>
+#include <FL/Fl_Text_Display.H>
 
 #include <algorithm>
 #include <cassert>
@@ -117,7 +118,7 @@ void DupDetectWindow::updateTable(
 {
     auto progressBar = My_scanProgressBar;
     My_resultsTree->clear();
-    ::output("Updating results table...");
+    debug_output("Updating results table...");
     auto amount = duplicateFiles.size();
     int  count  = 0;
     {
@@ -128,11 +129,11 @@ void DupDetectWindow::updateTable(
     }
     ::output("Total unique hashes: ", amount);
     for (const auto& [hash, files] : duplicateFiles) {
-        ::output("Processing hash: ", hash, " with ", files.size(), " files.");
+        debug_output("Processing hash: ", hash, " with ", files.size(), " files.");
         if (files.size() > 1) {
             auto text = "Hash: " + hash + " (" + std::to_string(files.size()) +
                         " files)";
-            ::output("Adding tree parent: ", text);
+            debug_output("Adding tree parent: ", text);
             {
                 FLLock l;
                 auto   parent = My_resultsTree->add(text.c_str());
@@ -188,7 +189,7 @@ DupDetectWindow* DupDetectWindow::create()
 {
     DupDetectWindow* w;
     {
-        auto *o = new DupDetectWindow(770, 565);
+        auto *o = new DupDetectWindow(770, 580);
         (void) w;
         o->box(FL_FLAT_BOX);
         o->color(FL_BACKGROUND_COLOR);
@@ -217,7 +218,7 @@ DupDetectWindow* DupDetectWindow::create()
         }  // Fl_Button* o
         {
             w->My_scanProgressBar =
-                new Fl_Progress(15, 107, 740, 24, "Scan Progress");
+                new Fl_Progress(15, 105, 740, 25, "Scan Progress");
             w->My_scanProgressBar->minimum(0);
             w->My_scanProgressBar->maximum(100);
         }  // Fl_Progress* o
@@ -230,22 +231,28 @@ DupDetectWindow* DupDetectWindow::create()
             auto text_width = 125;
 #endif
             Fl_Output* o =
-                new Fl_Output(text_width + 17, 61, 740 - 2 - text_width, 28,
+                new Fl_Output(text_width + 17, 60, 740 - 2 - text_width, 28,
                               "Currently Hashing:");
             o->color((Fl_Color) 48);
             w->My_currentTargetFile = o;
         }  // Fl_Output* o
         {
-            w->My_resultsTree = new Fl_Tree(15, 153, 740, 339);
+            Fl_Output *o = new Fl_Output(20, 150, 740, 28);
+            o->box(FL_NO_BOX);
+            o->color(FL_GRAY);
+            o->value("Duplicate files found. Delete a hash to remove all files but the blue one.");
+        }
+        {
+            w->My_resultsTree = new Fl_Tree(15, 180, 740, 340);
             w->resizable(w->My_resultsTree);
         }  // Fl_Tree* o
         {
             w->My_deleteItemButton =
-                new Fl_Button(15, 510, 132, 28, "Delete Duplicates");
+                new Fl_Button(15, 530, 132, 28, "Delete Duplicates");
         }
         {
             w->My_removeItemButton =
-                new Fl_Button(157, 510, 132, 28, "Ignore Entry");
+                new Fl_Button(157, 530, 132, 28, "Ignore Entry");
         }
         o->end();
     }  // DupDetectWindow* o
@@ -279,7 +286,6 @@ DupDetectWindow* DupDetectWindow::create()
                 fl_alert("No selection");
                 return ;
             }
-            ::output(item->label());
             // check != parent_sentintel bc a child can have nullptr OR
             // survivor_sentinel for user_data
             if (item->user_data() != parent_sentinel) {
@@ -350,8 +356,7 @@ DupDetectWindow* DupDetectWindow::create()
 
                 relabel_hash_parent(item);
             }
-            // TODO: why does the UI not refresh even if I call
-            // Fl::check();
+            // TODO: why does the UI not refresh even if I call Fl::check();
         },
         w);
 
@@ -409,7 +414,7 @@ DupDetectWindow* DupDetectWindow::create()
                             (hasher.will_be_hashed().value_or("...")).c_str());
                     }
                     while (auto result = hasher.next()) {
-                        ::output("Hashed: ", std::get<0>(*(result)), " -> ",
+                        debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                                  std::get<1>(*(result)));
                         // check to see if the user has cancelled
                         // if so, stop, update the ui, and end the thread
@@ -426,7 +431,7 @@ DupDetectWindow* DupDetectWindow::create()
                         }
                     }
                     ui->scanning = false;
-                    ::output("Hashing complete. Unique hashes found: ",
+                    debug_output("Hashing complete. Unique hashes found: ",
                              hasher.duplicates.size());
                     ui->updateTable(hasher.duplicates);
                     {

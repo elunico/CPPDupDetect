@@ -4,8 +4,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "openssl/sha.h"
 
 extern "C" {
+
+#include <openssl/evp.h>
 
 void sha256_hash_string(unsigned char hash[SHA256_DIGEST_LENGTH],
                         char          outputBuffer[65])
@@ -19,42 +22,61 @@ void sha256_hash_string(unsigned char hash[SHA256_DIGEST_LENGTH],
     outputBuffer[64] = 0;
 }
 
-void sha256_string(char const* string, char outputBuffer[65])
+// adapted from: https://wiki.openssl.org/index.php/EVP_Message_Digests
+inline void digest_file(const char* path, char output[65])
 {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX    sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, string, strlen(string));
-    SHA256_Final(hash, &sha256);
-    int i = 0;
-    for (i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        snprintf(outputBuffer + i * 2, 3, "%02x", hash[i]);
+    EVP_MD_CTX* mdctx;
+    FILE*       file = fopen(path, "rb");
+
+    if (file == NULL) {
+        return;  // nothing to clean up
     }
-    outputBuffer[64] = 0;
+
+    constexpr int  buf_size   = 32768;
+    unsigned char* buffer     = static_cast<unsigned char*>(malloc(buf_size));
+    int            bytes_read = 0;
+
+    if (buffer == NULL) {
+        fclose(file);
+        return;
+        // cannot jump over variable initiailizations
+    }
+
+    unsigned char* digest;
+    if ((digest = (unsigned char*) OPENSSL_malloc(EVP_MD_size(EVP_sha256()))) ==
+        NULL) {
+        goto init_error;  // close file & free buffer
+    }
+
+    if ((mdctx = EVP_MD_CTX_new()) == NULL)
+        goto error;  // close file, free buffer, free digest
+
+    if (1 != EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL))
+        goto up_error;
+
+    while ((bytes_read = fread(buffer, 1, buf_size, file))) {
+        if (1 != EVP_DigestUpdate(mdctx, buffer, bytes_read)) {
+            goto up_error;
+        }
+    }
+
+    if (1 != EVP_DigestFinal_ex(mdctx, digest, NULL))
+        goto up_error;
+
+    sha256_hash_string(digest, output);
+
+up_error:
+    EVP_MD_CTX_free(mdctx);
+error:
+    OPENSSL_free(digest);
+init_error:
+    free(buffer);
+    fclose(file);
 }
 
 int sha256_file(char const* path, char outputBuffer[65])
 {
-    FILE* file = fopen(path, "rb");
-    if (!file)
-        return -534;
-
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX    sha256;
-    SHA256_Init(&sha256);
-    constexpr int  bufSize   = 32768;
-    unsigned char* buffer    = static_cast<unsigned char*>(malloc(bufSize));
-    int            bytesRead = 0;
-    if (!buffer)
-        return ENOMEM;
-    while ((bytesRead = fread(buffer, 1, bufSize, file))) {
-        SHA256_Update(&sha256, buffer, bytesRead);
-    }
-    SHA256_Final(hash, &sha256);
-
-    sha256_hash_string(hash, outputBuffer);
-    fclose(file);
-    free(buffer);
+    digest_file(path, outputBuffer);
     return 0;
 }
 

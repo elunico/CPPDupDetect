@@ -1,17 +1,9 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-#ifdef NDEBUG
-
-template <typename... Args>
-constexpr inline void output([[maybe_unused]] Args&&... args)
-{
-    (void) 0;
-}
-
-#else
-
 #include <iostream>
+
+#ifndef SILENCE_OUTPUT
 
 template <typename... Args>
 void output(Args&&... args)
@@ -19,6 +11,24 @@ void output(Args&&... args)
     ((std::cout << std::forward<Args>(args)), ...);
     std::cout << '\n';
 }
+
+#else
+
+template <typename... Args>
+inline constexpr void debug_output([[maybe_unused]] Args&&... args)
+{
+    return ;
+}
+
+#endif 
+
+#ifdef NDEBUG
+
+#define debug_output(...) (void)0
+
+#else
+
+#define debug_output(...) output(__VA_ARGS__)
 
 #endif  // NDEBUG
 
