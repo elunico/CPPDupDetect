@@ -6,7 +6,7 @@ include_directories(.)
 
 option(RELEASE_BUILD "Build in release mode" OFF)
 
-file(GLOB_RECURSE SOURCES "./*.cxx")
+file(GLOB SOURCES "./*.cpp")
 
 if(WIN32)
 set(CMAKE_CXX_STANDARD 23)
@@ -36,6 +36,12 @@ else()
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
     set(VALGRIND_BUILD NO)
+    set(SILENT_RUN NO)
+
+    if (SILENT_RUN)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DSILENCE_OUTPUT")
+    endif()
+    
 
     if(RELEASE_BUILD)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG")

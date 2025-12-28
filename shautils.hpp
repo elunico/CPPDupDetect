@@ -11,9 +11,8 @@ extern "C" {
 void sha256_hash_string(unsigned char hash[SHA256_DIGEST_LENGTH],
                         char          outputBuffer[65]);
 
-void sha256_string(char const* string, char outputBuffer[65]);
-
 int sha256_file(char const* path, char outputBuffer[65]);
+
 }  // extern "C"
 
 #endif  // DUPDETECT_SHAUTILS_HPP

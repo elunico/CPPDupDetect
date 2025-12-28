@@ -13,6 +13,7 @@ enum struct SurvivorChoiceType { NEWEST, OLDEST, RANDOM };
 
 struct SurvivorChoiceWindow : Fl_Window {
   private: 
+    Fl_Window* parent;
     Fl_Choice* choices;
     Fl_Button* go_button;
     bool m_was_cancelled = true; 
@@ -22,7 +23,7 @@ struct SurvivorChoiceWindow : Fl_Window {
 
     bool was_cancelled() const;
 
-    void show() override;
+    void show_and_wait(); 
 
     SurvivorChoiceType get_choice() const;
 };

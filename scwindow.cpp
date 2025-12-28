@@ -1,13 +1,19 @@
 #include "scwindow.hpp"
+#include <FL/Enumerations.H>
+#include <FL/Fl_Output.H>
 
 SurvivorChoiceWindow::SurvivorChoiceWindow(Fl_Window* parent)
-    : Fl_Window(parent->x(), parent->y(), 500, 200, "Choose survivor strategy")
+    : Fl_Window(parent->x(), parent->y(), 500, 130, "Survivor Strategy"),
+    parent(parent)
 {
+    static constexpr int padding = 20; 
     set_modal();
 
-    new Fl_Text_Display(20, 20, 200, 28, "Select a survivor strategy");
+    auto *out = new Fl_Output(padding, 10, 500 - padding * 2, 30);
+    out->box(FL_NO_BOX);
+    out->value("Select a survivor strategy");
 
-    choices = new Fl_Choice(20, 20, 250, 30);
+    choices = new Fl_Choice(padding, padding * 2, 500 - padding * 2, 30);
 
     // WARN: the order of these choices must match the order of cases in the
     // SurvivorChoiceType enum
@@ -16,7 +22,7 @@ SurvivorChoiceWindow::SurvivorChoiceWindow(Fl_Window* parent)
     choices->add("Random File Survives");
     choices->value(0);
 
-    go_button = new Fl_Button(20, 60, 120, 24, "Ok");
+    go_button = new Fl_Button(((500 / 2) - (120 / 2)) + padding, 80, 100, 30, "OK");
     go_button->callback(
         []([[maybe_unused]] auto* widget, void* win) {
             SurvivorChoiceWindow* window =
@@ -34,11 +40,15 @@ bool SurvivorChoiceWindow::was_cancelled() const
     return m_was_cancelled;
 }
 
-void SurvivorChoiceWindow::show() 
+void SurvivorChoiceWindow::show_and_wait() 
 {
     Fl_Window::show();
-    while (shown())
+    while (shown()) {
+        if (!parent->shown()) {
+            break;
+        }
         Fl::wait();
+    }
 }
 
 SurvivorChoiceType SurvivorChoiceWindow::get_choice() const
