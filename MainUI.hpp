@@ -13,9 +13,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <memory>
 #include "fileutils.hpp"
-#include "survivorchoice.hpp"
+#include "scwindow.hpp"
 
 class DupDetectWindow : public Fl_Window {
    public:

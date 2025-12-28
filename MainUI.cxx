@@ -22,7 +22,6 @@
 
 #include "fileutils.hpp"
 #include "fllock.hpp"
-#include "survivorchoice.hpp"
 #include "uiutils.hpp"
 #include "utils.hpp"
 
@@ -39,7 +38,7 @@ DupDetectWindow::~DupDetectWindow() noexcept {
 
 bool DupDetectWindow::ask_for_choice()
 {
-    auto choicer = std::make_unique<SurvivorChoice>(this);
+    auto choicer = std::make_unique<SurvivorChoiceWindow>(this);
     choicer->show();
 
     if (choicer->was_cancelled()) {
@@ -293,7 +292,6 @@ DupDetectWindow* DupDetectWindow::create()
                 }
                 // this is a specific file that the user chose to delete
                 ::output("Deleting specific file ", item->label());
-                // TODO: actual file deleting :grimace:
 
                 // Fix parent content to reflect removed file
                 auto* parent = item->parent();
@@ -312,6 +310,7 @@ DupDetectWindow* DupDetectWindow::create()
                 }
 
                 ui->My_resultsTree->remove(item);
+                // TODO: actual file deleting :grimace:
                 relabel_hash_parent(parent);
             } else {
                 // Delete all duplicates
