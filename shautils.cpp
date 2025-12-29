@@ -32,9 +32,9 @@ inline void digest_file(const char* path, char output[65])
         return;  // nothing to clean up
     }
 
-    constexpr int  buf_size   = 32768;
-    unsigned char* buffer     = static_cast<unsigned char*>(malloc(buf_size));
-    int            bytes_read = 0;
+    constexpr int buf_size   = 32768;
+    auto*         buffer     = static_cast<unsigned char*>(malloc(buf_size));
+    int           bytes_read = 0;
 
     if (buffer == NULL) {
         fclose(file);

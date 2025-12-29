@@ -13,8 +13,7 @@ std::size_t count_all(std::filesystem::path const& path, T const& pred)
     std::size_t count    = 0;
     auto        iterator = std::filesystem::recursive_directory_iterator(path);
     while (iterator != std::filesystem::end(iterator)) {
-        auto& entry = *iterator;
-        if (pred(entry)) {
+        if (auto& entry = *iterator; pred(entry)) {
             ++count;
         }
         try {
@@ -34,11 +33,11 @@ struct DirectoryHasher {
     PathType                                            path;
     std::unordered_map<HashType, std::vector<PathType>> duplicates;
 
-    std::size_t get_progress() const;
+    [[nodiscard]] std::size_t get_progress() const;
 
-    std::size_t get_total() const;
+    [[nodiscard]] std::size_t get_total() const;
 
-    DirectoryHasher(const std::string& p);
+    explicit DirectoryHasher(const std::string& p);
 
     std::optional<PathType> will_be_hashed();
 

@@ -51,18 +51,20 @@ class DupDetectWindow : public Fl_Window {
 
     void display_not_scanning();
 
-    void reset_progress(int min, int max); 
+    void reset_progress(int min, int max);
 
-    std::string choose_survivor(std::vector<std::string> const& files) const;
+    [[nodiscard]] std::string choose_survivor(
+        std::vector<std::string> const& files) const;
 
-    std::string choose_survivor_after_delete(Fl_Tree_Item *parent, Fl_Tree_Item *old_survivor);
+    std::string choose_survivor_after_delete(Fl_Tree_Item* parent,
+                                             Fl_Tree_Item* old_survivor);
 
-    bool ask_for_choice(); 
+    [[nodiscard]] bool ask_for_choice();
    public:
     DupDetectWindow(int w, int h);
     ~DupDetectWindow() noexcept override;
 
-    static DupDetectWindow* create();
+    [[nodiscard]] static DupDetectWindow* create();
 };
 
 #endif

@@ -29,7 +29,7 @@
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
 
-DupDetectWindow::DupDetectWindow(int w, int h) : Fl_Window(w, h)
+DupDetectWindow::DupDetectWindow(int w, int h) : Fl_Window(w, h), choice()
 {
 }
 
@@ -109,7 +109,7 @@ std::string DupDetectWindow::choose_survivor(
 
     fl_alert("Invalid choice. Program will terminate!");
     std::terminate();
-    // let's hope so anyay
+    // let's hope so anyway
     std::unreachable();
 }
 
@@ -157,7 +157,7 @@ void DupDetectWindow::updateTable(
     My_resultsTree->redraw();
 }
 
-static inline void relabel_hash_parent(Fl_Tree_Item* item)
+static void relabel_hash_parent(Fl_Tree_Item* item)
 {
     // re-make the label for this hash to reflect the removed files
     // 'Hash: ' + hash length + ' ' + (n item) + \0
@@ -200,7 +200,7 @@ DupDetectWindow* DupDetectWindow::create()
         o->labelcolor(FL_FOREGROUND_COLOR);
         o->align(Fl_Align(FL_ALIGN_TOP));
         o->when(FL_WHEN_RELEASE);
-        w       = std::move(o);
+        w = o;
         {
             Fl_Button* o = new Fl_Button(15, 15, 132, 28, "Choose Directory");
             o->tooltip("Choose a directory to scan for duplicates");
@@ -346,8 +346,8 @@ DupDetectWindow* DupDetectWindow::create()
                 // find the child with the user data indicating it is
                 // the newest and should be saved
                 for (auto i = child_count - 1; i >= 0; --i) {
-                    auto* child = item->child(i);
-                    if (child->user_data() != survivor_sentinel) {
+                    if (auto* child = item->child(i);
+                        child->user_data() != survivor_sentinel) {
                         ::output("Will delete ", child->label());
                         ui->My_resultsTree->remove(child);
                         // TODO: delete actual files

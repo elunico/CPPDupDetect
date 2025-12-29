@@ -21,11 +21,11 @@ struct SurvivorChoiceWindow : Fl_Window {
   public:
     explicit SurvivorChoiceWindow(Fl_Window* parent);
 
-    bool was_cancelled() const;
+   [[nodiscard]] bool was_cancelled() const;
 
-    void show_and_wait(); 
+    void show_and_wait();
 
-    SurvivorChoiceType get_choice() const;
+   [[nodiscard]] SurvivorChoiceType get_choice() const;
 };
 
 #endif

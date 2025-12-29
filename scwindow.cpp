@@ -25,8 +25,7 @@ SurvivorChoiceWindow::SurvivorChoiceWindow(Fl_Window* parent)
     go_button = new Fl_Button(((500 / 2) - (120 / 2)) + padding, 80, 100, 30, "OK");
     go_button->callback(
         []([[maybe_unused]] auto* widget, void* win) {
-            SurvivorChoiceWindow* window =
-                static_cast<SurvivorChoiceWindow*>(win);
+            auto* window = static_cast<SurvivorChoiceWindow*>(win);
             window->hide();
             window->m_was_cancelled = false;
         },
