@@ -60,6 +60,7 @@ class DupDetectWindow : public Fl_Window {
                                              Fl_Tree_Item* old_survivor);
 
     [[nodiscard]] bool ask_for_choice();
+
    public:
     DupDetectWindow(int w, int h);
     ~DupDetectWindow() noexcept override;
