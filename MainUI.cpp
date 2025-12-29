@@ -292,6 +292,13 @@ DupDetectWindow* DupDetectWindow::create()
 
             if (item->user_data() == parent_sentinel) {
                 // we have a parent
+                
+                // double check with the user
+                auto result = confirm("Are you sure you want to hide %s?", item->label());
+                if (result != ConfirmResult::YES) {
+                    return;
+                }
+                 
                 // lets not show it but not actually do anything
                 ui->My_resultsTree->remove(item);
                 return;
