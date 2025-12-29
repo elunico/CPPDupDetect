@@ -33,7 +33,7 @@ class DupDetectWindow : public Fl_Window {
     static int * const parent_sentinel;
     
    private:
-    SurvivorChoiceType choice; 
+    SurvivorChoiceType survivor_strategy; 
     
     Fl_Button*   My_selectDirButton{};
     Fl_Button*   My_startScanButton{};

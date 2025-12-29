@@ -2,11 +2,11 @@
 
 #include "MainUI.hpp"
 #include <FL/Enumerations.H>
-#include <FL/Fl_Window.H>
 #include <FL/fl_ask.H>
+#include <FL/Fl_Text_Display.H>
 #include <FL/Fl_Tree_Item.H>
 #include <FL/Fl_Widget.H>
-#include <FL/Fl_Text_Display.H>
+#include <FL/Fl_Window.H>
 
 #include <algorithm>
 #include <cassert>
@@ -29,11 +29,12 @@
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
 
-DupDetectWindow::DupDetectWindow(int w, int h) : Fl_Window(w, h), choice()
+DupDetectWindow::DupDetectWindow(int w, int h) : Fl_Window(w, h), survivor_strategy()
 {
 }
 
-DupDetectWindow::~DupDetectWindow() noexcept {
+DupDetectWindow::~DupDetectWindow() noexcept
+{
     Fl_Window::~Fl_Window();
 }
 
@@ -47,7 +48,7 @@ bool DupDetectWindow::ask_for_choice()
         return false;
     }
 
-    choice = choicer->get_choice();
+    survivor_strategy = choicer->get_choice();
     return true;
 }
 
@@ -88,17 +89,17 @@ std::string DupDetectWindow::choose_survivor(
             "Cannot choose survivor from 0 options. Program will terminate!");
         std::terminate();
     }
-    if (choice == SurvivorChoiceType::RANDOM) {
+    if (survivor_strategy == SurvivorChoiceType::RANDOM) {
         // simulate randomness for debugging purposes
         return files.front();
-    } else if (choice == SurvivorChoiceType::NEWEST) {
+    } else if (survivor_strategy == SurvivorChoiceType::NEWEST) {
         return *std::max_element(
             std::begin(files), std::end(files),
             [](auto const& file1, auto const& file2) {
                 return std::filesystem::last_write_time(file1) <
                        std::filesystem::last_write_time(file2);
             });
-    } else if (choice == SurvivorChoiceType::OLDEST) {
+    } else if (survivor_strategy == SurvivorChoiceType::OLDEST) {
         return *std::min_element(
             std::begin(files), std::end(files),
             [](auto const& file1, auto const& file2) {
@@ -120,7 +121,21 @@ void DupDetectWindow::updateTable(
     My_resultsTree->clear();
     debug_output("Updating results table...");
     auto amount = duplicateFiles.size();
-    int  count  = 0;
+
+    if (amount == 0) {
+        FLLock l;
+        // fl_alert("No duplicates found!");
+        ::output("NO DUPLICATES FOUND");
+        My_resultsTree->add("No duplicates found!");
+        My_deleteItemButton->deactivate();
+        My_removeItemButton->deactivate();
+        return;
+    } else {
+        My_deleteItemButton->activate();
+        My_removeItemButton->activate();
+    }
+
+    int count = 0;
     {
         FLLock l;
         progressBar->value(0);
@@ -129,7 +144,8 @@ void DupDetectWindow::updateTable(
     }
     ::output("Total unique hashes: ", amount);
     for (const auto& [hash, files] : duplicateFiles) {
-        debug_output("Processing hash: ", hash, " with ", files.size(), " files.");
+        debug_output("Processing hash: ", hash, " with ", files.size(),
+                     " files.");
         if (files.size() > 1) {
             auto text = "Hash: " + hash + " (" + std::to_string(files.size()) +
                         " files)";
@@ -189,7 +205,7 @@ DupDetectWindow* DupDetectWindow::create()
 {
     DupDetectWindow* w;
     {
-        auto *o = new DupDetectWindow(770, 580);
+        auto* o = new DupDetectWindow(770, 580);
         (void) w;
         o->box(FL_FLAT_BOX);
         o->color(FL_BACKGROUND_COLOR);
@@ -215,6 +231,9 @@ DupDetectWindow* DupDetectWindow::create()
         }  // Fl_Output* o
         {
             w->My_startScanButton = new Fl_Button(685, 15, 70, 28, "Scan");
+            w->My_startScanButton->tooltip("Start scanning for duplicates");
+            w->My_startScanButton->align(Fl_Align(FL_ALIGN_WRAP));
+            w->My_startScanButton->deactivate();
         }  // Fl_Button* o
         {
             w->My_scanProgressBar =
@@ -237,10 +256,12 @@ DupDetectWindow* DupDetectWindow::create()
             w->My_currentTargetFile = o;
         }  // Fl_Output* o
         {
-            Fl_Output *o = new Fl_Output(20, 150, 740, 28);
+            Fl_Output* o = new Fl_Output(20, 150, 740, 28);
             o->box(FL_NO_BOX);
             o->color(FL_GRAY);
-            o->value("Duplicate files found. Delete a hash to remove all files but the blue one.");
+            o->value(
+                "Duplicate files found. Delete a hash to remove all files but "
+                "the blue one.");
         }
         {
             w->My_resultsTree = new Fl_Tree(15, 180, 740, 340);
@@ -249,10 +270,12 @@ DupDetectWindow* DupDetectWindow::create()
         {
             w->My_deleteItemButton =
                 new Fl_Button(15, 530, 132, 28, "Delete Duplicates");
+            w->My_deleteItemButton->deactivate();
         }
         {
             w->My_removeItemButton =
                 new Fl_Button(157, 530, 132, 28, "Ignore Entry");
+            w->My_removeItemButton->deactivate();
         }
         o->end();
     }  // DupDetectWindow* o
@@ -264,9 +287,9 @@ DupDetectWindow* DupDetectWindow::create()
 
             if (item == nullptr) {
                 fl_alert("No selection!");
-                return ;
+                return;
             }
-            
+
             if (item->user_data() == parent_sentinel) {
                 // we have a parent
                 // lets not show it but not actually do anything
@@ -284,7 +307,14 @@ DupDetectWindow* DupDetectWindow::create()
             auto* item = ui->My_resultsTree->first_selected_item();
             if (item == nullptr) {
                 fl_alert("No selection");
-                return ;
+                return;
+            }
+
+            if (item == ui->My_resultsTree->root()) {
+                fl_alert(
+                    "Cannot delete the root element. Choose a hash or an "
+                    "individual file");
+                return;
             }
             // check != parent_sentintel bc a child can have nullptr OR
             // survivor_sentinel for user_data
@@ -317,7 +347,14 @@ DupDetectWindow* DupDetectWindow::create()
 
                 ui->My_resultsTree->remove(item);
                 // TODO: actual file deleting :grimace:
-                relabel_hash_parent(parent);
+
+                // if there are files left, reflect that in the count in the parent
+                // otherwise remove the empty hash from the view since it is empty
+                if (parent->children() > 0) {
+                    relabel_hash_parent(parent);
+                } else {
+                    ui->My_resultsTree->remove(parent);
+                }
             } else {
                 // Delete all duplicates
                 // confirm with the user first
@@ -339,10 +376,12 @@ DupDetectWindow* DupDetectWindow::create()
                     "files under this hash except the newest will be "
                     "deleted. Do you want to continue?",
                     child_count - 1);
+
                 if (result != ConfirmResult::YES) {
                     return;
                 }
-                ::output("Will delete all duplicates except newest");
+
+                ::output("Will delete all duplicates except designated survivor");
                 // find the child with the user data indicating it is
                 // the newest and should be saved
                 for (auto i = child_count - 1; i >= 0; --i) {
@@ -368,7 +407,13 @@ DupDetectWindow* DupDetectWindow::create()
             fc.title("Select Directory to Scan");
             fc.type(Fl_Native_File_Chooser::BROWSE_DIRECTORY);
             fc.show();
-            ui->My_selectedDirOutput->value(fc.filename());
+            auto filename = fc.filename();
+            ui->My_selectedDirOutput->value(filename);
+            if (filename && *filename) {
+                ui->My_startScanButton->activate();
+            } else {
+                ui->My_startScanButton->deactivate();
+            }
         },
         w);
 
@@ -415,7 +460,7 @@ DupDetectWindow* DupDetectWindow::create()
                     }
                     while (auto result = hasher.next()) {
                         debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
-                                 std::get<1>(*(result)));
+                                     std::get<1>(*(result)));
                         // check to see if the user has cancelled
                         // if so, stop, update the ui, and end the thread
                         if (!ui->scanning) {
@@ -432,7 +477,7 @@ DupDetectWindow* DupDetectWindow::create()
                     }
                     ui->scanning = false;
                     debug_output("Hashing complete. Unique hashes found: ",
-                             hasher.duplicates.size());
+                                 hasher.duplicates.size());
                     ui->updateTable(hasher.duplicates);
                     {
                         FLLock l;
