@@ -1,5 +1,6 @@
 #include "fileutils.hpp"
 #include "shautils.hpp"
+#include "utils.hpp"
 
 std::size_t DirectoryHasher::get_progress() const
 {
@@ -44,18 +45,25 @@ DirectoryHasher::next()
 
     auto& entry = *iterator;
     char  outputBuffer[65];
-    if (entry.is_regular_file()) {
-        sha256_file(const_cast<char*>(entry.path().string().c_str()),
-                    outputBuffer);
-        duplicates[std::string(outputBuffer)].push_back(entry.path().string());
-        ++progress;
-        auto tup =
-            std::make_tuple(entry.path().string(), std::string(outputBuffer));
-        ++iterator;
-        return tup;
-    } else {
-        auto tup = std::make_tuple(entry.path().string(), "<directory>");
-        ++iterator;
-        return tup;
+    try {
+        if (entry.is_regular_file()) {
+            sha256_file(entry.path().string().c_str(), outputBuffer);
+            duplicates[std::string(outputBuffer)].push_back(
+                entry.path().string());
+            ++progress;
+            auto tup = std::make_tuple(entry.path().string(),
+                                       std::string(outputBuffer));
+            ++iterator;
+            return tup;
+        } else {
+            auto tup = std::make_tuple(entry.path().string(), "<directory>");
+            ++iterator;
+            return tup;
+        }
+    } catch (std::filesystem::filesystem_error& e) {
+        // Skip files that cannot be accessed
+        // ++iterator;
+        ::output("Warning: Could not access file. Skipping.");
+        return next();
     }
 }
