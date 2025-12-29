@@ -259,9 +259,7 @@ DupDetectWindow* DupDetectWindow::create()
             Fl_Output* o = new Fl_Output(20, 150, 740, 28);
             o->box(FL_NO_BOX);
             o->color(FL_GRAY);
-            o->value(
-                "Duplicate files found. Delete a hash to remove all files but "
-                "the blue one.");
+            o->value("Click a hash to delete all matching duplicates except the blue one. Click ANY file to delete it directly.");
         }
         {
             w->My_resultsTree = new Fl_Tree(15, 180, 740, 340);
@@ -269,12 +267,12 @@ DupDetectWindow* DupDetectWindow::create()
         }  // Fl_Tree* o
         {
             w->My_deleteItemButton =
-                new Fl_Button(15, 530, 132, 28, "Delete Duplicates");
+                new Fl_Button(15, 530, 132, 28, "Delete");
             w->My_deleteItemButton->deactivate();
         }
         {
             w->My_removeItemButton =
-                new Fl_Button(157, 530, 132, 28, "Ignore Entry");
+                new Fl_Button(157, 530, 132, 28, "Ignore");
             w->My_removeItemButton->deactivate();
         }
         o->end();
@@ -284,6 +282,7 @@ DupDetectWindow* DupDetectWindow::create()
         []([[maybe_unused]] auto* widget, auto* win) {
             auto* ui   = static_cast<DupDetectWindow*>(win);
             auto* item = ui->My_resultsTree->first_selected_item();
+            static ConfirmToken remove_token{};
 
             if (item == nullptr) {
                 fl_alert("No selection!");
@@ -294,7 +293,7 @@ DupDetectWindow* DupDetectWindow::create()
                 // we have a parent
                 
                 // double check with the user
-                auto result = confirm("Are you sure you want to hide %s?", item->label());
+                auto result = confirm(&remove_token, "Are you sure you want to hide %s?", item->label());
                 if (result != ConfirmResult::YES) {
                     return;
                 }
