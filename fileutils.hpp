@@ -4,16 +4,24 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <utils.hpp>
 #include <vector>
 
 template <typename T>
 std::size_t count_all(std::filesystem::path const& path, T const& pred)
 {
-    std::size_t count = 0;
-    for (auto const& entry :
-         std::filesystem::recursive_directory_iterator(path)) {
+    std::size_t count    = 0;
+    auto        iterator = std::filesystem::recursive_directory_iterator(path);
+    while (iterator != std::filesystem::end(iterator)) {
+        auto& entry = *iterator;
         if (pred(entry)) {
             ++count;
+        }
+        try {
+            ++iterator;
+        } catch (const std::filesystem::filesystem_error&) {
+            // Ignore errors and continue
+            ::output("Warning: Unable to access path. Skipping.");
         }
     }
     return count;
