@@ -4,7 +4,8 @@
 #define MainUI_h
 #ifdef WIN32
 
-#pragma comment (lib,"Gdiplus.lib") // This can be used in Visual Studio, but CMake handles linking
+#pragma comment(lib, "Gdiplus.lib")  // This can be used in Visual Studio, but
+                                     // CMake handles linking
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "comctl32.lib")
 
@@ -29,12 +30,12 @@ class DupDetectWindow : public Fl_Window {
     using HashType = DirectoryHasher::HashType;
     using PathType = DirectoryHasher::PathType;
 
-    static int * const survivor_sentinel;
-    static int * const parent_sentinel;
-    
+    static int* const survivor_sentinel;
+    static int* const parent_sentinel;
+
    private:
-    SurvivorChoiceType survivor_strategy; 
-    
+    SurvivorChoiceType survivor_strategy;
+
     Fl_Button*   My_selectDirButton{};
     Fl_Button*   My_startScanButton{};
     Fl_Button*   My_cancelScanButton{};
@@ -45,6 +46,20 @@ class DupDetectWindow : public Fl_Window {
     Fl_Button*   My_removeItemButton{};
     Fl_Tree*     My_resultsTree{};
     bool         scanning{false};
+
+    // all button callbacks are prefixed with perform_
+    void perform_choose_dir();
+
+    void perform_start_scan();
+
+    void perform_remove_item();
+
+    void perform_delete_item();
+    // methods not starting with perform_ are helper methods
+   
+    void delete_single_item(Fl_Tree_Item* item);
+
+    void delete_hash_parent_item(Fl_Tree_Item* item, int child_count);
 
     void updateTable(
         std::unordered_map<HashType, std::vector<PathType>>& duplicateFiles);
@@ -60,6 +75,9 @@ class DupDetectWindow : public Fl_Window {
                                              Fl_Tree_Item* old_survivor);
 
     [[nodiscard]] bool ask_for_choice();
+
+
+    [[nodiscard]] static DupDetectWindow* construct_window();
 
    public:
     DupDetectWindow(int w, int h);

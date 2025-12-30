@@ -4,6 +4,7 @@
 #include <FL/Enumerations.H>
 #include <FL/fl_ask.H>
 #include <FL/Fl_Text_Display.H>
+#include <FL/Fl_Tree.H>
 #include <FL/Fl_Tree_Item.H>
 #include <FL/Fl_Widget.H>
 #include <FL/Fl_Window.H>
@@ -29,13 +30,330 @@
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
 
-DupDetectWindow::DupDetectWindow(int w, int h) : Fl_Window(w, h), survivor_strategy()
+static void relabel_hash_parent(Fl_Tree_Item* item)
+{
+    // re-make the label for this hash to reflect the removed files
+    // 'Hash: ' + hash length + ' ' + (n item) + \0
+    int   digits = item->children() == 0 ? 1 : std::log10(item->children()) + 1;
+    int   len    = 6 + 64 + 1 + digits + 9 + 1;
+    char* new_label = new char[len];
+    std::memcpy(new_label, item->label(), 6 + 64);
+    snprintf(new_label + 64 + 6, digits + 10, " (%d files)", item->children());
+    new_label[len - 1] = 0;
+
+    item->label(new_label);
+}
+
+DupDetectWindow* DupDetectWindow::construct_window()
+{
+    auto* w = new DupDetectWindow(770, 580);
+    w->box(FL_FLAT_BOX);
+    w->color(FL_BACKGROUND_COLOR);
+    w->selection_color(FL_BACKGROUND_COLOR);
+    w->labeltype(FL_NO_LABEL);
+    w->labelfont(0);
+    w->labelsize(14);
+    w->labelcolor(FL_FOREGROUND_COLOR);
+    w->align(Fl_Align(FL_ALIGN_TOP));
+    w->when(FL_WHEN_RELEASE);
+    {
+        Fl_Button* o = new Fl_Button(15, 15, 132, 28, "Choose Directory");
+        o->tooltip("Choose a directory to scan for duplicates");
+        o->selection_color((Fl_Color) 48);
+        o->align(Fl_Align(FL_ALIGN_WRAP));
+        w->My_selectDirButton = o;
+    }  // Fl_Button* o
+    {
+        Fl_Output* o = new Fl_Output(229, 15, 443, 28, "Directory:");
+        o->color((Fl_Color) 48);
+        w->My_selectedDirOutput = o;
+    }  // Fl_Output* o
+    {
+        w->My_startScanButton = new Fl_Button(685, 15, 70, 28, "Scan");
+        w->My_startScanButton->tooltip("Start scanning for duplicates");
+        w->My_startScanButton->align(Fl_Align(FL_ALIGN_WRAP));
+        w->My_startScanButton->deactivate();
+    }  // Fl_Button* o
+    {
+        w->My_scanProgressBar =
+            new Fl_Progress(15, 105, 740, 25, "Scan Progress");
+        w->My_scanProgressBar->minimum(0);
+        w->My_scanProgressBar->maximum(100);
+    }  // Fl_Progress* o
+    {
+#ifdef __APPLE__
+        // macOS allows us to call fl_width with no window, but linux does
+        // not;
+        auto text_width = fl_width("Currently Hashing:");
+#else
+        auto text_width = 125;
+#endif
+        Fl_Output* o = new Fl_Output(text_width + 17, 60, 740 - 2 - text_width,
+                                     28, "Currently Hashing:");
+        o->color((Fl_Color) 48);
+        w->My_currentTargetFile = o;
+    }  // Fl_Output* o
+    {
+        Fl_Output* o = new Fl_Output(20, 150, 740, 28);
+        o->box(FL_NO_BOX);
+        o->color(FL_GRAY);
+        o->value(
+            "Click a hash to delete all matching duplicates except the "
+            "blue one. Click ANY file to delete it directly.");
+    }
+    {
+        w->My_resultsTree = new Fl_Tree(15, 180, 740, 340);
+        w->resizable(w->My_resultsTree);
+    }  // Fl_Tree* o
+    {
+        w->My_deleteItemButton = new Fl_Button(15, 530, 132, 28, "Delete");
+        w->My_deleteItemButton->deactivate();
+    }
+    {
+        w->My_removeItemButton = new Fl_Button(157, 530, 132, 28, "Ignore");
+        w->My_removeItemButton->deactivate();
+    }
+    w->end();
+    return w;
+}  // DupDetectWindow* o
+
+DupDetectWindow::DupDetectWindow(int w, int h)
+    : Fl_Window(w, h), survivor_strategy()
 {
 }
 
 DupDetectWindow::~DupDetectWindow() noexcept
 {
     Fl_Window::~Fl_Window();
+}
+
+void DupDetectWindow::perform_choose_dir()
+{
+    Fl_Native_File_Chooser fc;
+    fc.title("Select Directory to Scan");
+    fc.type(Fl_Native_File_Chooser::BROWSE_DIRECTORY);
+    fc.show();
+    auto filename = fc.filename();
+    My_selectedDirOutput->value(filename);
+    if (filename && *filename) {
+        My_startScanButton->activate();
+    } else {
+        My_startScanButton->deactivate();
+    }
+}
+
+void DupDetectWindow::perform_start_scan()
+{
+    std::string selectedDir = My_selectedDirOutput->value();
+    if (My_selectedDirOutput->value()[0] == '\0') {
+        std::cout << "No directory selected." << std::endl;
+        fl_alert("No directory chosen!");
+        return;
+    }
+
+    if (scanning) {
+        // if we are scanning and we click this button
+        // we should cancel the scan and update the UI
+        {
+            FLLock l;
+            display_not_scanning();
+        }
+        scanning = false;
+        return;
+    } else {
+        // if we are not scanning we will ask for a strategy
+        // update the ui and spawn a thread to start the scan
+        scanning = true;
+
+        if (!ask_for_choice()) {
+            return;
+        }
+
+        {
+            FLLock l;
+            My_startScanButton->label("Cancel Scan");
+            My_resultsTree->clear();
+        }
+        std::thread t{[this, selectedDir]() {
+            DirectoryHasher hasher(selectedDir);
+            {
+                FLLock l;
+                reset_progress(0, hasher.get_total());
+                My_currentTargetFile->value(
+                    (hasher.will_be_hashed().value_or("...")).c_str());
+            }
+            while (auto result = hasher.next()) {
+                debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
+                             std::get<1>(*(result)));
+                // check to see if the user has cancelled
+                // if so, stop, update the ui, and end the thread
+                if (!scanning) {
+                    break;
+                }
+                {
+                    FLLock l;
+                    My_scanProgressBar->value(hasher.get_progress());
+                    My_currentTargetFile->value(
+                        (hasher.will_be_hashed().value_or("...")).c_str());
+                }
+            }
+            scanning = false;
+            debug_output("Hashing complete. Unique hashes found: ",
+                         hasher.duplicates.size());
+            updateTable(hasher.duplicates);
+            {
+                FLLock l;
+                display_not_scanning();
+                reset_progress(0, 1);
+            }
+        }};
+        t.detach();
+    }
+}
+
+void DupDetectWindow::perform_remove_item()
+{
+    auto*               item = My_resultsTree->first_selected_item();
+    static ConfirmToken remove_token{};
+
+    if (item == nullptr) {
+        fl_alert("No selection!");
+        return;
+    }
+
+    if (item->user_data() == parent_sentinel) {
+        // we have a parent
+
+        // double check with the user
+        auto result = confirm(
+            &remove_token, "Are you sure you want to hide %s?", item->label());
+        if (result != ConfirmResult::YES) {
+            return;
+        }
+
+        // lets not show it but not actually do anything
+        My_resultsTree->remove(item);
+        return;
+    }
+    fl_alert("Can only ignore hash values. Select a hash to ignore it.");
+}
+
+static Fl_Tree_Item* try_get_selected_item(Fl_Tree* tree)
+{
+    auto* item = tree->first_selected_item();
+    if (item == nullptr) {
+        fl_alert("No selection");
+        return nullptr;
+        ;
+    }
+
+    if (item == tree->root()) {
+        fl_alert(
+            "Cannot delete the root element. Choose a hash or an "
+            "individual file");
+        return nullptr;
+    }
+    return item;
+}
+
+void DupDetectWindow::delete_single_item(Fl_Tree_Item* item)
+{
+    // Fix parent content to reflect removed file
+    auto* parent = item->parent();
+    if (parent == nullptr) {
+        ::output("Unexpected nullptr parent on ", item->label());
+        throw std::runtime_error("unexpected null parent");
+    }
+
+    if (item->user_data() == survivor_sentinel && parent->children() > 1) {
+        // item is designated survivor, new survivor must be chosen
+        // AS LONG AS there are still other files to choose from
+        // If this is the last file matching the hash, it can be
+        // removed//
+        choose_survivor_after_delete(parent, item);
+    }
+
+    My_resultsTree->remove(item);
+    // TODO: actual file deleting :grimace:
+
+    // if there are files left, reflect that in the count in the
+    // parent otherwise remove the empty hash from the view since it
+    // is empty
+    if (parent->children() > 0) {
+        relabel_hash_parent(parent);
+    } else {
+        My_resultsTree->remove(parent);
+    }
+}
+
+void DupDetectWindow::delete_hash_parent_item(Fl_Tree_Item* item,
+                                              int           child_count)
+{
+    // find the child with the user data indicating it is
+    // the newest and should be saved
+    for (auto i = child_count - 1; i >= 0; --i) {
+        if (auto* child = item->child(i);
+            child->user_data() != survivor_sentinel) {
+            ::output("Will delete ", child->label());
+            My_resultsTree->remove(child);
+            // TODO: delete actual files
+        }
+    }
+
+    relabel_hash_parent(item);
+}
+
+void DupDetectWindow::perform_delete_item()
+{
+    Fl_Tree_Item* item = try_get_selected_item(My_resultsTree);
+    if (item == nullptr) {
+        return;
+    }
+
+    // check != parent_sentintel bc a child can have nullptr OR
+    // survivor_sentinel for user_data
+    if (item->user_data() != parent_sentinel) {
+        // delete a single file
+        // ask for confirmation
+        auto result =
+            confirm("Are you sure you want to delete %s.", item->label());
+        if (result != ConfirmResult::YES) {
+            return;
+        }
+        // this is a specific file that the user chose to delete
+        ::output("Deleting specific file ", item->label());
+
+        delete_single_item(item);
+    } else {
+        // Delete all duplicates
+        // confirm with the user first
+        auto child_count = item->children();
+        if (child_count == 0) {
+            fl_alert("Nothing to delete!");
+            return;
+        }
+
+        if (child_count == 1) {
+            fl_alert(
+                "There exists ONLY ONE file matching this hash left. "
+                "To delete it, select it and delete it explicitly");
+            return;
+        }
+
+        auto result = confirm(
+            "Warning you are about to delete %d files. ALL "
+            "files under this hash except the newest will be "
+            "deleted. Do you want to continue?",
+            child_count - 1);
+
+        if (result != ConfirmResult::YES) {
+            return;
+        }
+
+        ::output("Will delete all duplicates except designated survivor");
+        delete_hash_parent_item(item, child_count);
+    }
+    // TODO: why does the UI not refresh even if I call Fl::check();
 }
 
 bool DupDetectWindow::ask_for_choice()
@@ -173,20 +491,6 @@ void DupDetectWindow::updateTable(
     My_resultsTree->redraw();
 }
 
-static void relabel_hash_parent(Fl_Tree_Item* item)
-{
-    // re-make the label for this hash to reflect the removed files
-    // 'Hash: ' + hash length + ' ' + (n item) + \0
-    int   digits = item->children() == 0 ? 1 : std::log10(item->children()) + 1;
-    int   len    = 6 + 64 + 1 + digits + 9 + 1;
-    char* new_label = new char[len];
-    std::memcpy(new_label, item->label(), 6 + 64);
-    snprintf(new_label + 64 + 6, digits + 10, " (%d files)", item->children());
-    new_label[len - 1] = 0;
-
-    item->label(new_label);
-}
-
 void DupDetectWindow::display_not_scanning()
 {
     My_startScanButton->label("Scan");
@@ -203,205 +507,19 @@ void DupDetectWindow::reset_progress(int min, int max)
 
 DupDetectWindow* DupDetectWindow::create()
 {
-    DupDetectWindow* w;
-    {
-        auto* o = new DupDetectWindow(770, 580);
-        (void) w;
-        o->box(FL_FLAT_BOX);
-        o->color(FL_BACKGROUND_COLOR);
-        o->selection_color(FL_BACKGROUND_COLOR);
-        o->labeltype(FL_NO_LABEL);
-        o->labelfont(0);
-        o->labelsize(14);
-        o->labelcolor(FL_FOREGROUND_COLOR);
-        o->align(Fl_Align(FL_ALIGN_TOP));
-        o->when(FL_WHEN_RELEASE);
-        w = o;
-        {
-            Fl_Button* o = new Fl_Button(15, 15, 132, 28, "Choose Directory");
-            o->tooltip("Choose a directory to scan for duplicates");
-            o->selection_color((Fl_Color) 48);
-            o->align(Fl_Align(FL_ALIGN_WRAP));
-            w->My_selectDirButton = o;
-        }  // Fl_Button* o
-        {
-            Fl_Output* o = new Fl_Output(229, 15, 443, 28, "Directory:");
-            o->color((Fl_Color) 48);
-            w->My_selectedDirOutput = o;
-        }  // Fl_Output* o
-        {
-            w->My_startScanButton = new Fl_Button(685, 15, 70, 28, "Scan");
-            w->My_startScanButton->tooltip("Start scanning for duplicates");
-            w->My_startScanButton->align(Fl_Align(FL_ALIGN_WRAP));
-            w->My_startScanButton->deactivate();
-        }  // Fl_Button* o
-        {
-            w->My_scanProgressBar =
-                new Fl_Progress(15, 105, 740, 25, "Scan Progress");
-            w->My_scanProgressBar->minimum(0);
-            w->My_scanProgressBar->maximum(100);
-        }  // Fl_Progress* o
-        {
-#ifdef __APPLE__
-            // macOS allows us to call fl_width with no window, but linux does
-            // not;
-            auto text_width = fl_width("Currently Hashing:");
-#else
-            auto text_width = 125;
-#endif
-            Fl_Output* o =
-                new Fl_Output(text_width + 17, 60, 740 - 2 - text_width, 28,
-                              "Currently Hashing:");
-            o->color((Fl_Color) 48);
-            w->My_currentTargetFile = o;
-        }  // Fl_Output* o
-        {
-            Fl_Output* o = new Fl_Output(20, 150, 740, 28);
-            o->box(FL_NO_BOX);
-            o->color(FL_GRAY);
-            o->value("Click a hash to delete all matching duplicates except the blue one. Click ANY file to delete it directly.");
-        }
-        {
-            w->My_resultsTree = new Fl_Tree(15, 180, 740, 340);
-            w->resizable(w->My_resultsTree);
-        }  // Fl_Tree* o
-        {
-            w->My_deleteItemButton =
-                new Fl_Button(15, 530, 132, 28, "Delete");
-            w->My_deleteItemButton->deactivate();
-        }
-        {
-            w->My_removeItemButton =
-                new Fl_Button(157, 530, 132, 28, "Ignore");
-            w->My_removeItemButton->deactivate();
-        }
-        o->end();
-    }  // DupDetectWindow* o
+    DupDetectWindow* w = construct_window();
 
     w->My_removeItemButton->callback(
         []([[maybe_unused]] auto* widget, auto* win) {
-            auto* ui   = static_cast<DupDetectWindow*>(win);
-            auto* item = ui->My_resultsTree->first_selected_item();
-            static ConfirmToken remove_token{};
-
-            if (item == nullptr) {
-                fl_alert("No selection!");
-                return;
-            }
-
-            if (item->user_data() == parent_sentinel) {
-                // we have a parent
-                
-                // double check with the user
-                auto result = confirm(&remove_token, "Are you sure you want to hide %s?", item->label());
-                if (result != ConfirmResult::YES) {
-                    return;
-                }
-                 
-                // lets not show it but not actually do anything
-                ui->My_resultsTree->remove(item);
-                return;
-            }
-            fl_alert(
-                "Can only ignore hash values. Select a hash to ignore it.");
+            auto* ui = static_cast<DupDetectWindow*>(win);
+            ui->perform_remove_item();
         },
         w);
 
     w->My_deleteItemButton->callback(
         []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto* ui   = static_cast<DupDetectWindow*>(data);
-            auto* item = ui->My_resultsTree->first_selected_item();
-            if (item == nullptr) {
-                fl_alert("No selection");
-                return;
-            }
-
-            if (item == ui->My_resultsTree->root()) {
-                fl_alert(
-                    "Cannot delete the root element. Choose a hash or an "
-                    "individual file");
-                return;
-            }
-            // check != parent_sentintel bc a child can have nullptr OR
-            // survivor_sentinel for user_data
-            if (item->user_data() != parent_sentinel) {
-                // delete a single file
-                // ask for confirmation
-                auto result = confirm("Are you sure you want to delete %s.",
-                                      item->label());
-                if (result != ConfirmResult::YES) {
-                    return;
-                }
-                // this is a specific file that the user chose to delete
-                ::output("Deleting specific file ", item->label());
-
-                // Fix parent content to reflect removed file
-                auto* parent = item->parent();
-                if (parent == nullptr) {
-                    ::output("Unexpected nullptr parent on ", item->label());
-                    throw std::runtime_error("unexpected null parent");
-                }
-
-                if (item->user_data() == survivor_sentinel &&
-                    parent->children() > 1) {
-                    // item is designated survivor, new survivor must be chosen
-                    // AS LONG AS there are still other files to choose from
-                    // If this is the last file matching the hash, it can be
-                    // removed//
-                    ui->choose_survivor_after_delete(parent, item);
-                }
-
-                ui->My_resultsTree->remove(item);
-                // TODO: actual file deleting :grimace:
-
-                // if there are files left, reflect that in the count in the parent
-                // otherwise remove the empty hash from the view since it is empty
-                if (parent->children() > 0) {
-                    relabel_hash_parent(parent);
-                } else {
-                    ui->My_resultsTree->remove(parent);
-                }
-            } else {
-                // Delete all duplicates
-                // confirm with the user first
-                auto child_count = item->children();
-                if (child_count == 0) {
-                    fl_alert("Nothing to delete!");
-                    return;
-                }
-
-                if (child_count == 1) {
-                    fl_alert(
-                        "There exists ONLY ONE file matching this hash left. "
-                        "To delete it, select it and delete it explicitly");
-                    return;
-                }
-
-                auto result = confirm(
-                    "Warning you are about to delete %d files. ALL "
-                    "files under this hash except the newest will be "
-                    "deleted. Do you want to continue?",
-                    child_count - 1);
-
-                if (result != ConfirmResult::YES) {
-                    return;
-                }
-
-                ::output("Will delete all duplicates except designated survivor");
-                // find the child with the user data indicating it is
-                // the newest and should be saved
-                for (auto i = child_count - 1; i >= 0; --i) {
-                    if (auto* child = item->child(i);
-                        child->user_data() != survivor_sentinel) {
-                        ::output("Will delete ", child->label());
-                        ui->My_resultsTree->remove(child);
-                        // TODO: delete actual files
-                    }
-                }
-
-                relabel_hash_parent(item);
-            }
-            // TODO: why does the UI not refresh even if I call Fl::check();
+            auto* ui = static_cast<DupDetectWindow*>(data);
+            ui->perform_delete_item();
         },
         w);
 
@@ -409,90 +527,14 @@ DupDetectWindow* DupDetectWindow::create()
         []([[maybe_unused]] Fl_Widget* w, void* data) {
             auto* ui = static_cast<DupDetectWindow*>(data);
             // Callback code for My_selectDirButton
-            Fl_Native_File_Chooser fc;
-            fc.title("Select Directory to Scan");
-            fc.type(Fl_Native_File_Chooser::BROWSE_DIRECTORY);
-            fc.show();
-            auto filename = fc.filename();
-            ui->My_selectedDirOutput->value(filename);
-            if (filename && *filename) {
-                ui->My_startScanButton->activate();
-            } else {
-                ui->My_startScanButton->deactivate();
-            }
+            ui->perform_choose_dir();
         },
         w);
 
     w->My_startScanButton->callback(
         []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto*       ui          = static_cast<DupDetectWindow*>(data);
-            std::string selectedDir = ui->My_selectedDirOutput->value();
-            if (ui->My_selectedDirOutput->value()[0] == '\0') {
-                std::cout << "No directory selected." << std::endl;
-                fl_alert("No directory chosen!");
-                return;
-            }
-
-            if (ui->scanning) {
-                // if we are scanning and we click this button
-                // we should cancel the scan and update the UI
-                {
-                    FLLock l;
-                    ui->display_not_scanning();
-                }
-                ui->scanning = false;
-                return;
-            } else {
-                // if we are not scanning we will ask for a strategy
-                // update the ui and spawn a thread to start the scan
-                ui->scanning = true;
-
-                if (!ui->ask_for_choice()) {
-                    return;
-                }
-
-                {
-                    FLLock l;
-                    ui->My_startScanButton->label("Cancel Scan");
-                    ui->My_resultsTree->clear();
-                }
-                std::thread t{[ui, selectedDir]() {
-                    DirectoryHasher hasher(selectedDir);
-                    {
-                        FLLock l;
-                        ui->reset_progress(0, hasher.get_total());
-                        ui->My_currentTargetFile->value(
-                            (hasher.will_be_hashed().value_or("...")).c_str());
-                    }
-                    while (auto result = hasher.next()) {
-                        debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
-                                     std::get<1>(*(result)));
-                        // check to see if the user has cancelled
-                        // if so, stop, update the ui, and end the thread
-                        if (!ui->scanning) {
-                            break;
-                        }
-                        {
-                            FLLock l;
-                            ui->My_scanProgressBar->value(
-                                hasher.get_progress());
-                            ui->My_currentTargetFile->value(
-                                (hasher.will_be_hashed().value_or("..."))
-                                    .c_str());
-                        }
-                    }
-                    ui->scanning = false;
-                    debug_output("Hashing complete. Unique hashes found: ",
-                                 hasher.duplicates.size());
-                    ui->updateTable(hasher.duplicates);
-                    {
-                        FLLock l;
-                        ui->display_not_scanning();
-                        ui->reset_progress(0, 1);
-                    }
-                }};
-                t.detach();
-            }
+            auto* ui = static_cast<DupDetectWindow*>(data);
+            ui->perform_start_scan();
         },
         w);
 
