@@ -1,4 +1,5 @@
 #include "fileutils.hpp"
+#include <filesystem>
 #include "shautils.hpp"
 #include "utils.hpp"
 
@@ -74,6 +75,14 @@ DirectoryHasher::next()
         // Skip files that cannot be accessed
         // ++iterator;
         ::output("Warning: Could not access file. Skipping.");
+        while (iterator != std::filesystem::end(iterator)) {
+            try {
+                ++iterator;
+            } catch (std::filesystem::filesystem_error& e) {
+                ::output("Warning skipping file");
+            }
+        }
+        // TODO: am i skipping one here?
         return next();
     }
 }

@@ -211,18 +211,23 @@ void DupDetectWindow::perform_start_scan()
             My_resultsTree->clear();
         }
         std::thread t{[win = this->shared_from_this(), selectedDir]() {
-            DirectoryHasher hasher(selectedDir);
+            DirectoryHasher   hasher(selectedDir);
+            std::atomic<bool> update_ready{false};
 
-            std::thread pt{[&hasher, win]() {
+            std::thread pt{[&hasher, win, &update_ready]() {
                 while (win->scanning.load(std::memory_order_acquire)) {
                     std::this_thread::sleep_for(ui_update_delay);
-                    send_progress(win, hasher.get_progress(),
-                                  hasher.get_total(),
-                                  hasher.will_be_hashed().value_or("..."));
+                    if (update_ready.load()) {
+                        send_progress(win, hasher.get_progress(),
+                                      hasher.get_total(),
+                                      hasher.will_be_hashed().value_or("..."));
+                        update_ready.store(false);
+                    }
                 }
             }};
 
             while (auto result = hasher.next()) {
+                update_ready.store(true);
                 debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                              std::get<1>(*(result)));
                 // check to see if the user has cancelled
