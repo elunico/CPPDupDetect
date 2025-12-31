@@ -14,16 +14,12 @@ void ui_scan_update_cb(void* data)
 
     std::unique_ptr<UIUpdate> cleaner{msg};
 
-    DupDetectWindow* win = msg->window;
+    auto win_weak = msg->window;
+    auto win = win_weak.lock();
     if (win == nullptr) {
         return;
     }
 
-    // no lock needed because cb is always called on main thread
-    if (!living_windows.contains(win)) {
-        return;
-    }
-    
     switch (msg->type) {
         case UIUpdate::Type::Done: {
             if (msg->duplicates) {

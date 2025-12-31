@@ -10,7 +10,7 @@ struct UIUpdate {
   std::size_t progress;
   std::size_t total;
   std::string message;
-  DupDetectWindow* window;
+  std::weak_ptr<DupDetectWindow> window;
   std::shared_ptr<DupDetectWindow::DuplicateFilesCollection> duplicates;
 };
 

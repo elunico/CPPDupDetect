@@ -13,13 +13,12 @@
 #include <atomic>
 #include <cassert>
 #include <cstring>
-#include <filesystem>
+#include <format>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <format>
 #include <unordered_set>
 #include <utility>
 #include "FL/Fl_Native_File_Chooser.H"
@@ -33,8 +32,6 @@
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
 
-std::unordered_set<DupDetectWindow*> living_windows{};
-
 static void relabel_hash_parent(Fl_Tree_Item* item)
 {
     if (!item || !item->label()) {
@@ -42,17 +39,18 @@ static void relabel_hash_parent(Fl_Tree_Item* item)
         std::terminate();
     }
     // re-make the label for this hash to reflect the removed files
-    // 72 is prefix "Hash: <64 chars for hash> (" + digits of children + " files)" 
-    int const prefix_len = 72;
+    // 72 is prefix "Hash: <64 chars for hash> (" + digits of children + "
+    // files)"
+    int const         prefix_len = 72;
     std::string const prefix{item->label(), prefix_len};
     std::string result = std::format("{}{} files)", prefix, item->children());
     // TODO: strdup?
     item->label(result.c_str());
 }
 
-DupDetectWindow* DupDetectWindow::construct_window()
+std::shared_ptr<DupDetectWindow> DupDetectWindow::construct_window()
 {
-    auto* w = new DupDetectWindow(770, 580);
+    auto w = std::shared_ptr<DupDetectWindow>{new DupDetectWindow(770, 580)};
     w->box(FL_FLAT_BOX);
     w->color(FL_BACKGROUND_COLOR);
     w->selection_color(FL_BACKGROUND_COLOR);
@@ -128,16 +126,7 @@ DupDetectWindow::DupDetectWindow(int w, int h)
 {
 }
 
-DupDetectWindow::~DupDetectWindow() noexcept
-{
-    Fl_Window::~Fl_Window();
-}
-
-void DupDetectWindow::hide()
-{
-    living_windows.erase(this);
-    Fl_Window::hide();
-}
+DupDetectWindow::~DupDetectWindow() noexcept = default;
 
 void DupDetectWindow::perform_choose_dir()
 {
@@ -154,30 +143,39 @@ void DupDetectWindow::perform_choose_dir()
     }
 }
 
-void send_progress(DupDetectWindow *window, std::size_t progress, std::size_t total, std::string const& message)
+void send_progress(std::shared_ptr<DupDetectWindow> window,
+                   std::size_t                      progress,
+                   std::size_t                      total,
+                   std::string const&               message)
 {
     assert(window != nullptr);
     // this will be freed in the callback function
-    UIUpdate *update = new UIUpdate();
-    update->message = message; 
-    update->window = window;
+    UIUpdate* update = new UIUpdate();
+    update->message  = message;
+    update->window   = window;
     update->progress = progress;
-    update->total = total;
-    update->type = UIUpdate::Type::Progress;
+    update->total    = total;
+    update->type     = UIUpdate::Type::Progress;
     Fl::awake(ui_scan_update_cb, update);
 }
 
-void send_done(DupDetectWindow *window, std::size_t progress, std::size_t total, std::string const& message, DupDetectWindow::DuplicateFilesCollection&& files)
+void send_done(std::shared_ptr<DupDetectWindow>            window,
+               std::size_t                                 progress,
+               std::size_t                                 total,
+               std::string const&                          message,
+               DupDetectWindow::DuplicateFilesCollection&& files)
 {
     assert(window != nullptr);
     // this will be freed in the callback function
-    UIUpdate *update = new UIUpdate();
-    update->duplicates = std::make_shared<DupDetectWindow::DuplicateFilesCollection>(std::move(files));
-    update->message = message;
-    update->window = window;
+    UIUpdate* update = new UIUpdate();
+    update->duplicates =
+        std::make_shared<DupDetectWindow::DuplicateFilesCollection>(
+            std::move(files));
+    update->message  = message;
+    update->window   = window;
     update->progress = progress;
-    update->total = total;
-    update->type = UIUpdate::Type::Done;
+    update->total    = total;
+    update->type     = UIUpdate::Type::Done;
     Fl::awake(ui_scan_update_cb, update);
 }
 
@@ -203,7 +201,6 @@ void DupDetectWindow::perform_start_scan()
         // if we are not scanning we will ask for a strategy
         // update the ui and spawn a thread to start the scan
         scanning.store(true, std::memory_order_release);
-
         if (!ask_for_choice()) {
             return;
         }
@@ -213,22 +210,33 @@ void DupDetectWindow::perform_start_scan()
             My_startScanButton->label("Cancel Scan");
             My_resultsTree->clear();
         }
-        std::thread t{[win=this, selectedDir]() {
+        std::thread t{[win = this->shared_from_this(), selectedDir]() {
             DirectoryHasher hasher(selectedDir);
+
+            std::thread pt{[&hasher, win]() {
+                while (win->scanning.load(std::memory_order_acquire)) {
+                    std::this_thread::sleep_for(ui_update_delay);
+                    send_progress(win, hasher.get_progress(),
+                                  hasher.get_total(),
+                                  hasher.will_be_hashed().value_or("..."));
+                }
+            }};
+
             while (auto result = hasher.next()) {
                 debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                              std::get<1>(*(result)));
                 // check to see if the user has cancelled
                 // if so, stop, update the ui, and end the thread
-                if (!win->scanning.load(std::__1::memory_order::acquire)) {
+                if (!win->scanning.load(std::memory_order::acquire)) {
                     break;
                 }
-                send_progress(win, hasher.get_progress(), hasher.get_total(), hasher.will_be_hashed().value_or("..."));
             }
-            win->scanning = false;
+            win->scanning.store(false, std::memory_order_release);
+            pt.join();
             debug_output("Hashing complete. Unique hashes found: ",
                          hasher.duplicates.size());
-            send_done(win, hasher.get_progress(), hasher.get_total(), "<none>", std::move(hasher.duplicates));
+            send_done(win, hasher.get_progress(), hasher.get_total(), "<none>",
+                      std::move(hasher.duplicates));
         }};
         t.detach();
     }
@@ -429,23 +437,23 @@ std::string DupDetectWindow::choose_survivor(
             "Cannot choose survivor from 0 options. Program will terminate!");
         std::terminate();
     }
-    if (survivor_strategy == SurvivorChoiceType::RANDOM) {
-        // simulate randomness for debugging purposes
-        return files.front();
-    } else if (survivor_strategy == SurvivorChoiceType::NEWEST) {
-        return *std::max_element(
-            std::begin(files), std::end(files),
-            [](auto const& file1, auto const& file2) {
-                return std::filesystem::last_write_time(file1) <
-                       std::filesystem::last_write_time(file2);
-            });
-    } else if (survivor_strategy == SurvivorChoiceType::OLDEST) {
-        return *std::min_element(
-            std::begin(files), std::end(files),
-            [](auto const& file1, auto const& file2) {
-                return std::filesystem::last_write_time(file1) <
-                       std::filesystem::last_write_time(file2);
-            });
+
+    switch (survivor_strategy) {
+        case SurvivorChoiceType::RANDOM:
+            // simulate randomness for debugging purposes
+            return files.front();
+        case SurvivorChoiceType::NEWEST:
+            return *std::max_element(std::begin(files), std::end(files),
+                                     [](auto const& file1, auto const& file2) {
+                                         return last_write_time_safe(file1) <
+                                                last_write_time_safe(file2);
+                                     });
+        case SurvivorChoiceType::OLDEST:
+            return *std::min_element(std::begin(files), std::end(files),
+                                     [](auto const& file1, auto const& file2) {
+                                         return last_write_time_safe(file1) <
+                                                last_write_time_safe(file2);
+                                     });
     }
 
     fl_alert("Invalid choice. Program will terminate!");
@@ -527,40 +535,38 @@ void DupDetectWindow::reset_progress(int min, int max)
     My_scanProgressBar->value(min);
 }
 
-DupDetectWindow* DupDetectWindow::create()
+std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 {
-    DupDetectWindow* w = construct_window();
+    std::shared_ptr<DupDetectWindow> w = construct_window();
 
     w->My_removeItemButton->callback(
         []([[maybe_unused]] auto* widget, auto* win) {
-            auto* ui = static_cast<DupDetectWindow*>(win);
+            auto ui = static_cast<DupDetectWindow*>(win)->shared_from_this();
             ui->perform_remove_item();
         },
-        w);
+        w.get());
 
     w->My_deleteItemButton->callback(
         []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto* ui = static_cast<DupDetectWindow*>(data);
+            auto ui = static_cast<DupDetectWindow*>(data)->shared_from_this();
             ui->perform_delete_item();
         },
-        w);
+        w.get());
 
     w->My_selectDirButton->callback(
         []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto* ui = static_cast<DupDetectWindow*>(data);
+            auto ui = static_cast<DupDetectWindow*>(data)->shared_from_this();
             // Callback code for My_selectDirButton
             ui->perform_choose_dir();
         },
-        w);
+        w.get());
 
     w->My_startScanButton->callback(
         []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto* ui = static_cast<DupDetectWindow*>(data);
+            auto ui = static_cast<DupDetectWindow*>(data)->shared_from_this();
             ui->perform_start_scan();
         },
-        w);
+        w.get());
 
-    living_windows.insert(w);
-    
     return w;
 }

@@ -7,6 +7,8 @@
 #include <utils.hpp>
 #include <vector>
 
+std::filesystem::file_time_type last_write_time_safe(std::string const& entry);
+
 template <typename T>
 std::size_t count_all(std::filesystem::path const& path, T const& pred)
 {

@@ -3,6 +3,7 @@
 #ifndef MainUI_h
 #define MainUI_h
 #include <atomic>
+#include <memory>
 #include <unordered_set>
 #ifdef WIN32
 
@@ -28,7 +29,7 @@
 #include "scwindow.hpp"
 
 
-class DupDetectWindow : public Fl_Window {
+class DupDetectWindow : public Fl_Window, public std::enable_shared_from_this<DupDetectWindow> {
    public:
     using HashType = DirectoryHasher::HashType;
     using PathType = DirectoryHasher::PathType;
@@ -40,6 +41,8 @@ class DupDetectWindow : public Fl_Window {
         std::unordered_map<HashType, std::vector<PathType> >;
 
     friend void ui_scan_update_cb(void* data);
+
+    constexpr static std::chrono::milliseconds ui_update_delay{25};
 
    private:
     SurvivorChoiceType survivor_strategy;
@@ -83,17 +86,14 @@ class DupDetectWindow : public Fl_Window {
 
     [[nodiscard]] bool ask_for_choice();
 
-    [[nodiscard]] static DupDetectWindow* construct_window();
+    [[nodiscard]] static std::shared_ptr<DupDetectWindow> construct_window();
 
    public:
     DupDetectWindow(int w, int h);
     ~DupDetectWindow() noexcept override;
 
-    void hide() override;
-
-    [[nodiscard]] static DupDetectWindow* create();
+    [[nodiscard]] static std::shared_ptr<DupDetectWindow> create();
 };
 
-extern std::unordered_set<DupDetectWindow*> living_windows;
 
 #endif
