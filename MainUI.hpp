@@ -2,6 +2,8 @@
 
 #ifndef MainUI_h
 #define MainUI_h
+#include <atomic>
+#include <unordered_set>
 #ifdef WIN32
 
 #pragma comment(lib, "Gdiplus.lib")  // This can be used in Visual Studio, but
@@ -25,6 +27,7 @@
 #include "fileutils.hpp"
 #include "scwindow.hpp"
 
+
 class DupDetectWindow : public Fl_Window {
    public:
     using HashType = DirectoryHasher::HashType;
@@ -33,19 +36,24 @@ class DupDetectWindow : public Fl_Window {
     static int* const survivor_sentinel;
     static int* const parent_sentinel;
 
+    using DuplicateFilesCollection =
+        std::unordered_map<HashType, std::vector<PathType> >;
+
+    friend void ui_scan_update_cb(void* data);
+
    private:
     SurvivorChoiceType survivor_strategy;
 
-    Fl_Button*   My_selectDirButton{};
-    Fl_Button*   My_startScanButton{};
-    Fl_Button*   My_cancelScanButton{};
-    Fl_Output*   My_selectedDirOutput{};
-    Fl_Output*   My_currentTargetFile{};
-    Fl_Progress* My_scanProgressBar{};
-    Fl_Button*   My_deleteItemButton{};
-    Fl_Button*   My_removeItemButton{};
-    Fl_Tree*     My_resultsTree{};
-    bool         scanning{false};
+    Fl_Button*        My_selectDirButton{};
+    Fl_Button*        My_startScanButton{};
+    Fl_Button*        My_cancelScanButton{};
+    Fl_Output*        My_selectedDirOutput{};
+    Fl_Output*        My_currentTargetFile{};
+    Fl_Progress*      My_scanProgressBar{};
+    Fl_Button*        My_deleteItemButton{};
+    Fl_Button*        My_removeItemButton{};
+    Fl_Tree*          My_resultsTree{};
+    std::atomic<bool> scanning{false};
 
     // all button callbacks are prefixed with perform_
     void perform_choose_dir();
@@ -56,13 +64,12 @@ class DupDetectWindow : public Fl_Window {
 
     void perform_delete_item();
     // methods not starting with perform_ are helper methods
-   
+
     void delete_single_item(Fl_Tree_Item* item);
 
     void delete_hash_parent_item(Fl_Tree_Item* item, int child_count);
 
-    void updateTable(
-        std::unordered_map<HashType, std::vector<PathType>>& duplicateFiles);
+    void updateTable(DuplicateFilesCollection const& duplicateFiles);
 
     void display_not_scanning();
 
@@ -76,14 +83,17 @@ class DupDetectWindow : public Fl_Window {
 
     [[nodiscard]] bool ask_for_choice();
 
-
     [[nodiscard]] static DupDetectWindow* construct_window();
 
    public:
     DupDetectWindow(int w, int h);
     ~DupDetectWindow() noexcept override;
 
+    void hide() override;
+
     [[nodiscard]] static DupDetectWindow* create();
 };
+
+extern std::unordered_set<DupDetectWindow*> living_windows;
 
 #endif

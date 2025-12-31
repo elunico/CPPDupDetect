@@ -10,8 +10,8 @@
 #include <FL/Fl_Window.H>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
-#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
@@ -19,29 +19,35 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <format>
+#include <unordered_set>
 #include <utility>
 #include "FL/Fl_Native_File_Chooser.H"
 
 #include "fileutils.hpp"
 #include "fllock.hpp"
+#include "uiupdate.hpp"
 #include "uiutils.hpp"
 #include "utils.hpp"
 
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
 
+std::unordered_set<DupDetectWindow*> living_windows{};
+
 static void relabel_hash_parent(Fl_Tree_Item* item)
 {
+    if (!item || !item->label()) {
+        ::output("Unexpected null item! Application will terminate!");
+        std::terminate();
+    }
     // re-make the label for this hash to reflect the removed files
-    // 'Hash: ' + hash length + ' ' + (n item) + \0
-    int   digits = item->children() == 0 ? 1 : std::log10(item->children()) + 1;
-    int   len    = 6 + 64 + 1 + digits + 9 + 1;
-    char* new_label = new char[len];
-    std::memcpy(new_label, item->label(), 6 + 64);
-    snprintf(new_label + 64 + 6, digits + 10, " (%d files)", item->children());
-    new_label[len - 1] = 0;
-
-    item->label(new_label);
+    // 72 is prefix "Hash: <64 chars for hash> (" + digits of children + " files)" 
+    int const prefix_len = 72;
+    std::string const prefix{item->label(), prefix_len};
+    std::string result = std::format("{}{} files)", prefix, item->children());
+    // TODO: strdup?
+    item->label(result.c_str());
 }
 
 DupDetectWindow* DupDetectWindow::construct_window()
@@ -127,6 +133,12 @@ DupDetectWindow::~DupDetectWindow() noexcept
     Fl_Window::~Fl_Window();
 }
 
+void DupDetectWindow::hide()
+{
+    living_windows.erase(this);
+    Fl_Window::hide();
+}
+
 void DupDetectWindow::perform_choose_dir()
 {
     Fl_Native_File_Chooser fc;
@@ -142,6 +154,33 @@ void DupDetectWindow::perform_choose_dir()
     }
 }
 
+void send_progress(DupDetectWindow *window, std::size_t progress, std::size_t total, std::string const& message)
+{
+    assert(window != nullptr);
+    // this will be freed in the callback function
+    UIUpdate *update = new UIUpdate();
+    update->message = message; 
+    update->window = window;
+    update->progress = progress;
+    update->total = total;
+    update->type = UIUpdate::Type::Progress;
+    Fl::awake(ui_scan_update_cb, update);
+}
+
+void send_done(DupDetectWindow *window, std::size_t progress, std::size_t total, std::string const& message, DupDetectWindow::DuplicateFilesCollection&& files)
+{
+    assert(window != nullptr);
+    // this will be freed in the callback function
+    UIUpdate *update = new UIUpdate();
+    update->duplicates = std::make_shared<DupDetectWindow::DuplicateFilesCollection>(std::move(files));
+    update->message = message;
+    update->window = window;
+    update->progress = progress;
+    update->total = total;
+    update->type = UIUpdate::Type::Done;
+    Fl::awake(ui_scan_update_cb, update);
+}
+
 void DupDetectWindow::perform_start_scan()
 {
     std::string selectedDir = My_selectedDirOutput->value();
@@ -151,19 +190,19 @@ void DupDetectWindow::perform_start_scan()
         return;
     }
 
-    if (scanning) {
+    if (scanning.load(std::memory_order_acquire)) {
         // if we are scanning and we click this button
         // we should cancel the scan and update the UI
         {
             FLLock l;
             display_not_scanning();
         }
-        scanning = false;
+        scanning.store(false, std::memory_order_release);
         return;
     } else {
         // if we are not scanning we will ask for a strategy
         // update the ui and spawn a thread to start the scan
-        scanning = true;
+        scanning.store(true, std::memory_order_release);
 
         if (!ask_for_choice()) {
             return;
@@ -174,38 +213,22 @@ void DupDetectWindow::perform_start_scan()
             My_startScanButton->label("Cancel Scan");
             My_resultsTree->clear();
         }
-        std::thread t{[this, selectedDir]() {
+        std::thread t{[win=this, selectedDir]() {
             DirectoryHasher hasher(selectedDir);
-            {
-                FLLock l;
-                reset_progress(0, hasher.get_total());
-                My_currentTargetFile->value(
-                    (hasher.will_be_hashed().value_or("...")).c_str());
-            }
             while (auto result = hasher.next()) {
                 debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                              std::get<1>(*(result)));
                 // check to see if the user has cancelled
                 // if so, stop, update the ui, and end the thread
-                if (!scanning) {
+                if (!win->scanning.load(std::__1::memory_order::acquire)) {
                     break;
                 }
-                {
-                    FLLock l;
-                    My_scanProgressBar->value(hasher.get_progress());
-                    My_currentTargetFile->value(
-                        (hasher.will_be_hashed().value_or("...")).c_str());
-                }
+                send_progress(win, hasher.get_progress(), hasher.get_total(), hasher.will_be_hashed().value_or("..."));
             }
-            scanning = false;
+            win->scanning = false;
             debug_output("Hashing complete. Unique hashes found: ",
                          hasher.duplicates.size());
-            updateTable(hasher.duplicates);
-            {
-                FLLock l;
-                display_not_scanning();
-                reset_progress(0, 1);
-            }
+            send_done(win, hasher.get_progress(), hasher.get_total(), "<none>", std::move(hasher.duplicates));
         }};
         t.detach();
     }
@@ -244,7 +267,6 @@ static Fl_Tree_Item* try_get_selected_item(Fl_Tree* tree)
     if (item == nullptr) {
         fl_alert("No selection");
         return nullptr;
-        ;
     }
 
     if (item == tree->root()) {
@@ -293,7 +315,7 @@ void DupDetectWindow::delete_hash_parent_item(Fl_Tree_Item* item,
     // the newest and should be saved
     for (auto i = child_count - 1; i >= 0; --i) {
         if (auto* child = item->child(i);
-            child->user_data() != survivor_sentinel) {
+            child && child->user_data() != survivor_sentinel) {
             ::output("Will delete ", child->label());
             My_resultsTree->remove(child);
             // TODO: delete actual files
@@ -433,7 +455,7 @@ std::string DupDetectWindow::choose_survivor(
 }
 
 void DupDetectWindow::updateTable(
-    std::unordered_map<HashType, std::vector<PathType>>& duplicateFiles)
+    std::unordered_map<HashType, std::vector<PathType>> const& duplicateFiles)
 {
     auto progressBar = My_scanProgressBar;
     My_resultsTree->clear();
@@ -538,5 +560,7 @@ DupDetectWindow* DupDetectWindow::create()
         },
         w);
 
+    living_windows.insert(w);
+    
     return w;
 }

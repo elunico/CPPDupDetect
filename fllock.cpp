@@ -8,5 +8,4 @@ FLLock::FLLock()
 FLLock::~FLLock()
 {
     Fl::unlock();
-    Fl::awake();
 }
