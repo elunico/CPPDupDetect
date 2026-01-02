@@ -1,3 +1,10 @@
+#ifndef FILE_PLATFORM_H
+#define FILE_PLATFORM_H
+
+using PlatformUnavailableCallback = void (*)(char const*);
+
+extern PlatformUnavailableCallback on_platform_unavailable;
+void set_on_platform_unavailable(PlatformUnavailableCallback callback);
 
 #ifdef WIN32
 
@@ -19,8 +26,8 @@ inline static void reveal_file(char const* path)
 
 #elif defined(__APPLE__)
 
-#include <string>
 #include <format>
+#include <string>
 
 extern "C" {
 
@@ -29,17 +36,24 @@ extern "C" {
 inline static void reveal_file(char const* path)
 {
     std::string command = std::format("open -R \"{}\"", path);
-    system(command.c_str());    
+    system(command.c_str());
+}
 }
 
-}
+#elif defined(__linux__)
 
-#elif defined(__LINUX__) 
+#include <format>
+#include <string>
+
+extern "C" {
+
+#include <unistd.h>
 
 inline static void reveal_file(char const* path)
 {
     std::string command = std::format("nautilus \"{}\"", path);
     system(command.c_str());
+}
 }
 
 #else
@@ -49,8 +63,13 @@ inline static void reveal_file(char const* path)
 
 inline static void reveal_file(char const* path)
 {
-    std::cerr << "Cannot call reveal_file() on this platform" << std::endl;
-}   
+    if (!on_platform_unavailable) {
+        std::cerr << "Cannot call reveal_file() on this platform" << std::endl;
+    } else {
+        on_platform_unavailable(path);
+    }
+}
 
+#endif
 
 #endif
