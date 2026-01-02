@@ -19,6 +19,9 @@ struct SurvivorChoiceWindow : Fl_Window {
     bool m_was_cancelled = true; 
 
   public:
+    static constexpr int w = 500;
+    static constexpr int h = 130;
+    
     explicit SurvivorChoiceWindow(Fl_Window* parent);
 
    [[nodiscard]] bool was_cancelled() const;

@@ -1,10 +1,11 @@
 #include "uiupdate.hpp"
+#include <atomic>
 #include "MainUI.hpp"
 
 /**
-  * This should run on the main thread. It is a callback for Fl::awake()
-  * Do NOT call Fl::lock() or use FLLock in this function
-  */
+ * This should run on the main thread. It is a callback for Fl::awake()
+ * Do NOT call Fl::lock() in this function
+ */
 void ui_scan_update_cb(void* data)
 {
     auto* msg = static_cast<UIUpdate*>(data);
@@ -15,7 +16,7 @@ void ui_scan_update_cb(void* data)
     std::unique_ptr<UIUpdate> cleaner{msg};
 
     auto win_weak = msg->window;
-    auto win = win_weak.lock();
+    auto win      = win_weak.lock();
     if (win == nullptr) {
         return;
     }
@@ -29,15 +30,20 @@ void ui_scan_update_cb(void* data)
                 win->updateTable(DupDetectWindow::DuplicateFilesCollection{});
             }
 
-                win->display_not_scanning();
-                win->reset_progress(0, 1);
-                win->My_currentTargetFile->value(msg->message.c_str());
+            win->display_not_scanning();
+            win->reset_progress(0, 1);
+            win->My_currentTargetFile->value(msg->message.c_str());
             break;
         }
         case UIUpdate::Type::Progress: {
-            win->reset_progress(0, msg->total);
-            win->My_scanProgressBar->value(msg->progress);
-            win->My_currentTargetFile->value(msg->message.c_str());
+            if (win->scanning.load(std::memory_order_acquire)) {
+                // check to see if the program is still scanning, otherwise do
+                // not modify the UI in the progress update, it will be usurped
+                // the done update
+                win->reset_progress(0, msg->total);
+                win->My_scanProgressBar->value(msg->progress);
+                win->My_currentTargetFile->value(msg->message.c_str());
+            }
             break;
         }
     }

@@ -1,8 +1,9 @@
 #include "fileutils.hpp"
+#include <atomic>
 #include <filesystem>
+#include <mutex>
 #include "shautils.hpp"
 #include "utils.hpp"
-
 
 std::filesystem::file_time_type last_write_time_safe(std::string const& entry)
 {
@@ -15,7 +16,7 @@ std::filesystem::file_time_type last_write_time_safe(std::string const& entry)
 
 std::size_t DirectoryHasher::get_progress() const
 {
-    return progress;
+    return progress.load(std::memory_order_relaxed);
 }
 
 std::size_t DirectoryHasher::get_total() const
@@ -35,6 +36,8 @@ DirectoryHasher::DirectoryHasher(const std::string& p)
 
 std::optional<DirectoryHasher::PathType> DirectoryHasher::will_be_hashed()
 {
+    std::lock_guard guard{iterator_mutex};
+
     if (iterator == std::filesystem::end(iterator)) {
         return std::nullopt;
     }
@@ -50,36 +53,50 @@ std::optional<DirectoryHasher::PathType> DirectoryHasher::will_be_hashed()
 std::optional<std::tuple<DirectoryHasher::PathType, DirectoryHasher::HashType>>
 DirectoryHasher::next()
 {
-    if (iterator == std::filesystem::end(iterator)) {
-        return std::nullopt;
+    std::filesystem::directory_entry entry;
+
+    {
+        std::lock_guard guard{iterator_mutex};
+        if (iterator == std::filesystem::end(iterator)) {
+            return std::nullopt;
+        }
+        // copy the current entry to prevent race condition in pt thread.
+        entry = *iterator;
     }
 
-    auto& entry = *iterator;
-    char  outputBuffer[65];
+    char outputBuffer[65];
     try {
         if (entry.is_regular_file()) {
             sha256_file(entry.path().string().c_str(), outputBuffer);
             duplicates[std::string(outputBuffer)].push_back(
                 entry.path().string());
-            ++progress;
-            auto tup = std::make_tuple(entry.path().string(),
-                                       std::string(outputBuffer));
-            ++iterator;
-            return tup;
+            progress.fetch_add(1, std::memory_order_relaxed);
+
+            {
+                std::lock_guard guard{iterator_mutex};
+                ++iterator;
+            }
+            return std::make_tuple(entry.path().string(),
+                                   std::string(outputBuffer));
         } else {
-            auto tup = std::make_tuple(entry.path().string(), "<directory>");
-            ++iterator;
-            return tup;
+            {
+                std::lock_guard guard{iterator_mutex};
+                ++iterator;
+            }
+            return std::make_tuple(entry.path().string(), "<directory>");
         }
     } catch (std::filesystem::filesystem_error& e) {
         // Skip files that cannot be accessed
-        // ++iterator;
         ::output("Warning: Could not access file. Skipping.");
-        while (iterator != std::filesystem::end(iterator)) {
-            try {
-                ++iterator;
-            } catch (std::filesystem::filesystem_error& e) {
-                ::output("Warning skipping file");
+        {
+            std::lock_guard guard{iterator_mutex};
+            while (iterator != std::filesystem::end(iterator)) {
+                try {
+                    ++iterator;
+                    break;
+                } catch (std::filesystem::filesystem_error& e) {
+                    ::output("Warning skipping file");
+                }
             }
         }
         // TODO: am i skipping one here?

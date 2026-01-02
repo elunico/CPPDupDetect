@@ -2,6 +2,12 @@
 #define UTILS_HPP
 
 #include <iostream>
+#include <exception>
+
+[[noreturn]] static inline void die()
+{
+    std::terminate();
+}
 
 #ifndef SILENCE_OUTPUT
 

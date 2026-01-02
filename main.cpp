@@ -1,9 +1,14 @@
 #include "MainUI.hpp"
-#include "utils.hpp"
 
 int main()
 {
     Fl::lock();
+    /*
+     * The shared_ptr<DupDetectWindow> MUST live for the duration of the program
+     */
+
+    /* callbacks that update the UI are queued during a scan so the window must
+     * live long enough to empty the queue of Fl::awake events*/
     const auto window = DupDetectWindow::create();
     window->show();
     return Fl::run();

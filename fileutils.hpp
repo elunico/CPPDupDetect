@@ -1,7 +1,9 @@
 #ifndef DUPDETECT_FILEUTILS_HPP
 #define DUPDETECT_FILEUTILS_HPP
 
+#include <atomic>
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utils.hpp>
@@ -47,8 +49,9 @@ struct DirectoryHasher {
 
    private:
     std::filesystem::recursive_directory_iterator iterator;
-    std::size_t                                   progress;
+    std::atomic<std::size_t>                      progress;
     std::size_t                                   total;
+    std::mutex                                    iterator_mutex;
 };
 
 #endif  // DUPDETECT_FILEUTILS_HPP

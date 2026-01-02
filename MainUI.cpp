@@ -23,11 +23,32 @@
 #include <utility>
 #include "FL/Fl_Native_File_Chooser.H"
 
+#include "file-platform.hpp"
 #include "fileutils.hpp"
-#include "fllock.hpp"
+#include "scwindow.hpp"
 #include "uiupdate.hpp"
 #include "uiutils.hpp"
 #include "utils.hpp"
+
+auto center(Fl_Window *self, Fl_Window *parent, int w, int h) -> Fl_Window*
+{
+    auto max_x = parent == nullptr ? Fl::w() : parent->w();
+    auto max_y = parent == nullptr ? Fl::h() : parent->h();
+
+    auto px = parent == nullptr ? 0 : parent->x();
+    auto py = parent == nullptr ? 0 : parent->y();
+
+    auto x = px + (max_x / 2) - (w / 2);
+    auto y = py + (max_y / 2) - (h / 2);
+
+    self->resize(x, y, w, h);
+    return self;
+}
+
+auto center(Fl_Window* self, Fl_Window* parent) -> Fl_Window*
+{
+    return center(self, parent, self->w(), self->h());
+}
 
 int* const DupDetectWindow::survivor_sentinel = new int(1);
 int* const DupDetectWindow::parent_sentinel   = new int(2);
@@ -36,15 +57,19 @@ static void relabel_hash_parent(Fl_Tree_Item* item)
 {
     if (!item || !item->label()) {
         ::output("Unexpected null item! Application will terminate!");
-        std::terminate();
+        die();
     }
     // re-make the label for this hash to reflect the removed files
-    // 72 is prefix "Hash: <64 chars for hash> (" + digits of children + "
-    // files)"
-    int const         prefix_len = 72;
-    std::string const prefix{item->label(), prefix_len};
-    std::string result = std::format("{}{} files)", prefix, item->children());
-    // TODO: strdup?
+    std::string label = item->label();
+    auto        pos   = std::find(label.begin(), label.end(), '(');
+    if (pos == label.end()) {
+        ::output(
+            "Hash parent relabel does not match expected string. Application "
+            "will terminate!");
+        die();
+    }
+    std::string prefix(label.begin(), pos);
+    std::string result = std::format("{}({} files)", prefix, item->children());
     item->label(result.c_str());
 }
 
@@ -117,6 +142,10 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::construct_window()
         w->My_removeItemButton = new Fl_Button(157, 530, 132, 28, "Ignore");
         w->My_removeItemButton->deactivate();
     }
+    {
+        w->My_showItemButton = new Fl_Button(300, 530, 132, 28, "Reveal Item");
+        w->My_showItemButton->deactivate();
+    }
     w->end();
     return w;
 }  // DupDetectWindow* o
@@ -124,6 +153,7 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::construct_window()
 DupDetectWindow::DupDetectWindow(int w, int h)
     : Fl_Window(w, h), survivor_strategy()
 {
+    center(this, nullptr);
 }
 
 DupDetectWindow::~DupDetectWindow() noexcept = default;
@@ -143,10 +173,10 @@ void DupDetectWindow::perform_choose_dir()
     }
 }
 
-void send_progress(std::shared_ptr<DupDetectWindow> window,
-                   std::size_t                      progress,
-                   std::size_t                      total,
-                   std::string const&               message)
+void DupDetectWindow::send_progress(std::shared_ptr<DupDetectWindow> window,
+                                    std::size_t                      progress,
+                                    std::size_t                      total,
+                                    std::string const&               message)
 {
     assert(window != nullptr);
     // this will be freed in the callback function
@@ -159,11 +189,12 @@ void send_progress(std::shared_ptr<DupDetectWindow> window,
     Fl::awake(ui_scan_update_cb, update);
 }
 
-void send_done(std::shared_ptr<DupDetectWindow>            window,
-               std::size_t                                 progress,
-               std::size_t                                 total,
-               std::string const&                          message,
-               DupDetectWindow::DuplicateFilesCollection&& files)
+void DupDetectWindow::send_done(
+    std::shared_ptr<DupDetectWindow>            window,
+    std::size_t                                 progress,
+    std::size_t                                 total,
+    std::string const&                          message,
+    DupDetectWindow::DuplicateFilesCollection&& files)
 {
     assert(window != nullptr);
     // this will be freed in the callback function
@@ -176,13 +207,14 @@ void send_done(std::shared_ptr<DupDetectWindow>            window,
     update->progress = progress;
     update->total    = total;
     update->type     = UIUpdate::Type::Done;
+    window->scanning.store(false, std::memory_order_release);
     Fl::awake(ui_scan_update_cb, update);
 }
 
 void DupDetectWindow::perform_start_scan()
 {
     std::string selectedDir = My_selectedDirOutput->value();
-    if (My_selectedDirOutput->value()[0] == '\0') {
+    if (selectedDir.empty()) {
         std::cout << "No directory selected." << std::endl;
         fl_alert("No directory chosen!");
         return;
@@ -191,10 +223,7 @@ void DupDetectWindow::perform_start_scan()
     if (scanning.load(std::memory_order_acquire)) {
         // if we are scanning and we click this button
         // we should cancel the scan and update the UI
-        {
-            FLLock l;
-            display_not_scanning();
-        }
+        display_not_scanning();
         scanning.store(false, std::memory_order_release);
         return;
     } else {
@@ -205,28 +234,36 @@ void DupDetectWindow::perform_start_scan()
             return;
         }
 
-        {
-            FLLock l;
-            My_startScanButton->label("Cancel Scan");
-            My_resultsTree->clear();
-        }
+        My_startScanButton->label("Cancel Scan");
+        My_resultsTree->clear();
         std::thread t{[win = this->shared_from_this(), selectedDir]() {
-            DirectoryHasher   hasher(selectedDir);
+            // TODO: this can throw, we should probably check for that
+
+            std::unique_ptr<DirectoryHasher> hasher;
+            try {
+                hasher = std::make_unique<DirectoryHasher>(selectedDir);
+            } catch (std::exception& e) {
+                fl_alert(
+                    "Cannot access selected directory for hashing. Ensure "
+                    "appropriate permissions or select a new directory!");
+                win->send_done(win, 0, 0, "ERROR READING DIR",
+                               DupDetectWindow::DuplicateFilesCollection{});
+            }
             std::atomic<bool> update_ready{false};
 
             std::thread pt{[&hasher, win, &update_ready]() {
                 while (win->scanning.load(std::memory_order_acquire)) {
                     std::this_thread::sleep_for(ui_update_delay);
                     if (update_ready.load()) {
-                        send_progress(win, hasher.get_progress(),
-                                      hasher.get_total(),
-                                      hasher.will_be_hashed().value_or("..."));
+                        win->send_progress(
+                            win, hasher->get_progress(), hasher->get_total(),
+                            hasher->will_be_hashed().value_or("..."));
                         update_ready.store(false);
                     }
                 }
             }};
 
-            while (auto result = hasher.next()) {
+            while (auto result = hasher->next()) {
                 update_ready.store(true);
                 debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                              std::get<1>(*(result)));
@@ -236,42 +273,16 @@ void DupDetectWindow::perform_start_scan()
                     break;
                 }
             }
-            win->scanning.store(false, std::memory_order_release);
+            win->send_done(win, hasher->get_progress(), hasher->get_total(),
+                           "<none>", std::move(hasher->duplicates));
+            // pt must be after send_done because send_done sets scanning to
+            // false breaking out of hte pt loop
             pt.join();
             debug_output("Hashing complete. Unique hashes found: ",
-                         hasher.duplicates.size());
-            send_done(win, hasher.get_progress(), hasher.get_total(), "<none>",
-                      std::move(hasher.duplicates));
+                         hasher->duplicates.size());
         }};
         t.detach();
     }
-}
-
-void DupDetectWindow::perform_remove_item()
-{
-    auto*               item = My_resultsTree->first_selected_item();
-    static ConfirmToken remove_token{};
-
-    if (item == nullptr) {
-        fl_alert("No selection!");
-        return;
-    }
-
-    if (item->user_data() == parent_sentinel) {
-        // we have a parent
-
-        // double check with the user
-        auto result = confirm(
-            &remove_token, "Are you sure you want to hide %s?", item->label());
-        if (result != ConfirmResult::YES) {
-            return;
-        }
-
-        // lets not show it but not actually do anything
-        My_resultsTree->remove(item);
-        return;
-    }
-    fl_alert("Can only ignore hash values. Select a hash to ignore it.");
 }
 
 static Fl_Tree_Item* try_get_selected_item(Fl_Tree* tree)
@@ -291,51 +302,22 @@ static Fl_Tree_Item* try_get_selected_item(Fl_Tree* tree)
     return item;
 }
 
-void DupDetectWindow::delete_single_item(Fl_Tree_Item* item)
+void DupDetectWindow::perform_show_item()
 {
-    // Fix parent content to reflect removed file
-    auto* parent = item->parent();
-    if (parent == nullptr) {
-        ::output("Unexpected nullptr parent on ", item->label());
-        throw std::runtime_error("unexpected null parent");
+    auto* item = My_resultsTree->first_selected_item();
+
+    if (item == nullptr) {
+        fl_alert("No selection!");
+        return;
     }
 
-    if (item->user_data() == survivor_sentinel && parent->children() > 1) {
-        // item is designated survivor, new survivor must be chosen
-        // AS LONG AS there are still other files to choose from
-        // If this is the last file matching the hash, it can be
-        // removed//
-        choose_survivor_after_delete(parent, item);
+    if (item->user_data() == parent_sentinel ||
+        item == My_resultsTree->root()) {
+        fl_alert("Select a single file to reveal it");
+        return;
     }
 
-    My_resultsTree->remove(item);
-    // TODO: actual file deleting :grimace:
-
-    // if there are files left, reflect that in the count in the
-    // parent otherwise remove the empty hash from the view since it
-    // is empty
-    if (parent->children() > 0) {
-        relabel_hash_parent(parent);
-    } else {
-        My_resultsTree->remove(parent);
-    }
-}
-
-void DupDetectWindow::delete_hash_parent_item(Fl_Tree_Item* item,
-                                              int           child_count)
-{
-    // find the child with the user data indicating it is
-    // the newest and should be saved
-    for (auto i = child_count - 1; i >= 0; --i) {
-        if (auto* child = item->child(i);
-            child && child->user_data() != survivor_sentinel) {
-            ::output("Will delete ", child->label());
-            My_resultsTree->remove(child);
-            // TODO: delete actual files
-        }
-    }
-
-    relabel_hash_parent(item);
+    reveal_file(item->label());
 }
 
 void DupDetectWindow::perform_delete_item()
@@ -391,9 +373,84 @@ void DupDetectWindow::perform_delete_item()
     // TODO: why does the UI not refresh even if I call Fl::check();
 }
 
+void DupDetectWindow::perform_remove_item()
+{
+    auto*               item = My_resultsTree->first_selected_item();
+    static ConfirmToken remove_token{};
+
+    if (item == nullptr) {
+        fl_alert("No selection!");
+        return;
+    }
+
+    if (item->user_data() == parent_sentinel) {
+        // we have a parent
+
+        // double check with the user
+        auto result = confirm(
+            &remove_token, "Are you sure you want to hide %s?", item->label());
+        if (result != ConfirmResult::YES) {
+            return;
+        }
+
+        // lets not show it but not actually do anything
+        My_resultsTree->remove(item);
+        return;
+    }
+    fl_alert("Can only ignore hash values. Select a hash to ignore it.");
+}
+
+void DupDetectWindow::delete_single_item(Fl_Tree_Item* item)
+{
+    // Fix parent content to reflect removed file
+    auto* parent = item->parent();
+    if (parent == nullptr) {
+        ::output("Unexpected nullptr parent on ", item->label());
+        throw std::runtime_error("unexpected null parent");
+    }
+
+    if (item->user_data() == survivor_sentinel && parent->children() > 1) {
+        // item is designated survivor, new survivor must be chosen
+        // AS LONG AS there are still other files to choose from
+        // If this is the last file matching the hash, it can be
+        // removed//
+        choose_survivor_after_delete(parent, item);
+    }
+
+    My_resultsTree->remove(item);
+    // TODO: actual file deleting :grimace:
+
+    // if there are files left, reflect that in the count in the
+    // parent otherwise remove the empty hash from the view since it
+    // is empty
+    if (parent->children() > 0) {
+        relabel_hash_parent(parent);
+    } else {
+        My_resultsTree->remove(parent);
+    }
+}
+
+void DupDetectWindow::delete_hash_parent_item(Fl_Tree_Item* item,
+                                              int           child_count)
+{
+    // find the child with the user data indicating it is
+    // the newest and should be saved
+    for (auto i = child_count - 1; i >= 0; --i) {
+        if (auto* child = item->child(i);
+            child && child->user_data() != survivor_sentinel) {
+            ::output("Will delete ", child->label());
+            My_resultsTree->remove(child);
+            // TODO: delete actual files
+        }
+    }
+
+    relabel_hash_parent(item);
+}
+
 bool DupDetectWindow::ask_for_choice()
 {
     auto choicer = std::make_unique<SurvivorChoiceWindow>(this);
+    center(choicer.get(), this);
     choicer->show_and_wait();
 
     if (choicer->was_cancelled()) {
@@ -424,7 +481,7 @@ std::string DupDetectWindow::choose_survivor_after_delete(
         fl_alert(
             "Could not find suitable replacement for deleted survivor. Program "
             "will terminate!");
-        std::terminate();
+        die();
     }
     new_child_survivor->user_data(survivor_sentinel);
     new_child_survivor->labelfgcolor(FL_BLUE);
@@ -440,7 +497,7 @@ std::string DupDetectWindow::choose_survivor(
                   << std::endl;
         fl_alert(
             "Cannot choose survivor from 0 options. Program will terminate!");
-        std::terminate();
+        die();
     }
 
     switch (survivor_strategy) {
@@ -462,7 +519,7 @@ std::string DupDetectWindow::choose_survivor(
     }
 
     fl_alert("Invalid choice. Program will terminate!");
-    std::terminate();
+    die();
     // let's hope so anyway
     std::unreachable();
 }
@@ -476,26 +533,22 @@ void DupDetectWindow::updateTable(
     auto amount = duplicateFiles.size();
 
     if (amount == 0) {
-        FLLock l;
-        // fl_alert("No duplicates found!");
         ::output("NO DUPLICATES FOUND");
         My_resultsTree->add("No duplicates found!");
         My_deleteItemButton->deactivate();
         My_removeItemButton->deactivate();
+        My_showItemButton->deactivate();
         return;
     } else {
         My_deleteItemButton->activate();
         My_removeItemButton->activate();
+        My_showItemButton->activate();
     }
 
     int count = 0;
-    {
-        FLLock l;
-        progressBar->value(0);
-        progressBar->minimum(0);
-        progressBar->maximum(amount);
-    }
-    ::output("Total unique hashes: ", amount);
+    reset_progress(0, amount);
+    progressBar->value(amount);
+    debug_output("Total unique hashes: ", amount);
     for (const auto& [hash, files] : duplicateFiles) {
         debug_output("Processing hash: ", hash, " with ", files.size(),
                      " files.");
@@ -503,26 +556,20 @@ void DupDetectWindow::updateTable(
             auto text = "Hash: " + hash + " (" + std::to_string(files.size()) +
                         " files)";
             debug_output("Adding tree parent: ", text);
-            {
-                FLLock l;
-                auto   parent = My_resultsTree->add(text.c_str());
-                parent->user_data(parent_sentinel);
-                auto survivor = choose_survivor(files);
-                for (const auto& file : files) {
-                    auto* item = My_resultsTree->add(parent, file.c_str());
-                    item->labelfgcolor(FL_GRAY);
-                }
-                auto* sur = parent->find_child_item(survivor.data());
-                sur->user_data(survivor_sentinel);
-                sur->labelfgcolor(FL_BLUE);
+            auto parent = My_resultsTree->add(text.c_str());
+            parent->user_data(parent_sentinel);
+            auto survivor = choose_survivor(files);
+            for (const auto& file : files) {
+                auto* item = My_resultsTree->add(parent, file.c_str());
+                item->labelfgcolor(FL_GRAY);
             }
+            auto* sur = parent->find_child_item(survivor.data());
+            sur->user_data(survivor_sentinel);
+            sur->labelfgcolor(FL_BLUE);
         }
-        {
-            FLLock l;
-            progressBar->value(++count);
-        }
+        progressBar->value(++count);
     }
-    ::output("Results table update complete.");
+    debug_output("Results table update complete.");
     My_resultsTree->redraw();
 }
 
@@ -540,9 +587,20 @@ void DupDetectWindow::reset_progress(int min, int max)
     My_scanProgressBar->value(min);
 }
 
+/* The caller of create() MUST keep the shared_ptr alive for the duration of the
+ * program Callbacks used by Fl::awake call shared_from_this() on the raw
+ * pointer to DupDetectWindow. If the window is destroyed or invalidated before
+ * the end the program, these callbacks can reference bad memory. */
 std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 {
     std::shared_ptr<DupDetectWindow> w = construct_window();
+
+    w->My_showItemButton->callback(
+        []([[maybe_unused]] auto* widget, auto* win) {
+            auto ui = static_cast<DupDetectWindow*>(win)->shared_from_this();
+            ui->perform_show_item();
+        },
+        w.get());
 
     w->My_removeItemButton->callback(
         []([[maybe_unused]] auto* widget, auto* win) {

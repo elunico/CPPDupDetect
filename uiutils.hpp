@@ -5,8 +5,6 @@
 #include <FL/fl_ask.H>
 #include <cstdio>
 
-#define CPPDUPDETECT_MAX_CONFIRM_FMT (1 << 12)
-
 struct ConfirmToken {
     bool auto_yes = false;
 };
@@ -21,16 +19,11 @@ inline static ConfirmResult confirm(ConfirmToken* token,
     if (token && token->auto_yes) {
         return ConfirmResult::YES;
     }
-    static constexpr int BUF_SIZE = CPPDUPDETECT_MAX_CONFIRM_FMT;
-    char buf[BUF_SIZE];
-    std::snprintf(buf, BUF_SIZE, fmt, args...);
     char const* third_button = token == nullptr ? 0 : "Yes and Don't Ask Again";
-    auto        result = fl_choice("%s", fl_no, fl_yes, third_button, buf);
+    auto        result = fl_choice(fmt, fl_no, fl_yes, third_button, args...);
     if (result == 1 || result == 2) {
-        if (result == 2) {
-            if (token) {
-                token->auto_yes = true;
-            }
+        if (token && result == 2) {
+            token->auto_yes = true;
         }
         return ConfirmResult::YES;
     }

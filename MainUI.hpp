@@ -4,7 +4,6 @@
 #define MainUI_h
 #include <atomic>
 #include <memory>
-#include <unordered_set>
 #ifdef WIN32
 
 #pragma comment(lib, "Gdiplus.lib")  // This can be used in Visual Studio, but
@@ -28,17 +27,17 @@
 #include "fileutils.hpp"
 #include "scwindow.hpp"
 
-
-class DupDetectWindow : public Fl_Window, public std::enable_shared_from_this<DupDetectWindow> {
+class DupDetectWindow :
+    public Fl_Window,
+    public std::enable_shared_from_this<DupDetectWindow> {
    public:
     using HashType = DirectoryHasher::HashType;
     using PathType = DirectoryHasher::PathType;
+    using DuplicateFilesCollection =
+        std::unordered_map<HashType, std::vector<PathType> >;
 
     static int* const survivor_sentinel;
     static int* const parent_sentinel;
-
-    using DuplicateFilesCollection =
-        std::unordered_map<HashType, std::vector<PathType> >;
 
     friend void ui_scan_update_cb(void* data);
 
@@ -55,6 +54,7 @@ class DupDetectWindow : public Fl_Window, public std::enable_shared_from_this<Du
     Fl_Progress*      My_scanProgressBar{};
     Fl_Button*        My_deleteItemButton{};
     Fl_Button*        My_removeItemButton{};
+    Fl_Button*        My_showItemButton{};
     Fl_Tree*          My_resultsTree{};
     std::atomic<bool> scanning{false};
 
@@ -65,8 +65,21 @@ class DupDetectWindow : public Fl_Window, public std::enable_shared_from_this<Du
 
     void perform_remove_item();
 
+    void perform_show_item();
+
     void perform_delete_item();
     // methods not starting with perform_ are helper methods
+
+    void send_progress(std::shared_ptr<DupDetectWindow> window,
+                       std::size_t                      progress,
+                       std::size_t                      total,
+                       std::string const&               message);
+
+    void send_done(std::shared_ptr<DupDetectWindow>            window,
+                   std::size_t                                 progress,
+                   std::size_t                                 total,
+                   std::string const&                          message,
+                   DupDetectWindow::DuplicateFilesCollection&& files);
 
     void delete_single_item(Fl_Tree_Item* item);
 
@@ -94,6 +107,5 @@ class DupDetectWindow : public Fl_Window, public std::enable_shared_from_this<Du
 
     [[nodiscard]] static std::shared_ptr<DupDetectWindow> create();
 };
-
 
 #endif
