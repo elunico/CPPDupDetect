@@ -10,17 +10,20 @@ void set_on_platform_unavailable(PlatformUnavailableCallback callback);
 
 extern "C" {
 
+#include <Windows.h>
 #include <shellapi.h>
+#include <format>
+#include <stdexcept>
 
 inline static void reveal_file(char const* path)
 {
-    auto result = ShellExecuteA(NULL, "open", path, NULL, NULL, SW_SHOWDEFAULT);
+   ShellExecuteA(NULL, "open", "explorer.exe", std::format("/select \"{}\"", path).c_str(), NULL, SW_SHOWDEFAULT);
 
     // see
     // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutea?redirectedfrom=MSDN
-    if (result <= 32) {
-        throw std::runtime_error("Cannot open path");
-    }
+    //if (result <= 32) {
+    //    throw std::runtime_error("Cannot open path");
+    //}
 }
 }
 
