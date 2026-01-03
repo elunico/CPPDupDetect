@@ -1,6 +1,12 @@
 #include "uiupdate.hpp"
 #include <atomic>
+#include <memory>
 #include "MainUI.hpp"
+
+static std::string make_progress_label(int progress, int total)
+{
+    return std::format("Scan Progress {:.0f}% ({:Ld}/{:Ld})", ((double(progress) / total) * 100.0), progress, total);
+}
 
 /**
  * This should run on the main thread. It is a callback for Fl::awake()
@@ -24,15 +30,16 @@ void ui_scan_update_cb(void* data)
     switch (msg->type) {
         case UIUpdate::Type::Done: {
             if (msg->duplicates) {
-                auto local = std::move(*msg->duplicates);
-                win->updateTable(local);
+                win->updateTable(msg->duplicates);
             } else {
-                win->updateTable(DupDetectWindow::DuplicateFilesCollection{});
+                win->updateTable(std::make_shared<DupDetectWindow::DuplicateFilesCollection>());
             }
 
             win->display_not_scanning();
             win->reset_progress(0, 1);
             win->My_currentTargetFile->value(msg->message.c_str());
+            win->display_not_scanning();
+            win->My_scanProgressBar->copy_label(make_progress_label(msg->progress, msg->total).c_str());
             break;
         }
         case UIUpdate::Type::Progress: {
@@ -41,6 +48,7 @@ void ui_scan_update_cb(void* data)
                 // not modify the UI in the progress update, it will be usurped
                 // the done update
                 win->reset_progress(0, msg->total);
+                win->My_scanProgressBar->copy_label(make_progress_label(msg->progress, msg->total).c_str());
                 win->My_scanProgressBar->value(msg->progress);
                 win->My_currentTargetFile->value(msg->message.c_str());
             }

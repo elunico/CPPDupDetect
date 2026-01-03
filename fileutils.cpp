@@ -26,6 +26,7 @@ std::size_t DirectoryHasher::get_total() const
 
 DirectoryHasher::DirectoryHasher(const std::string& p)
     : path(p),
+      duplicates(std::make_shared<DuplicateFilesCollection>()),
       iterator(std::filesystem::recursive_directory_iterator(p)),
       progress(0),
       total(count_all(p, [](const std::filesystem::directory_entry& entry) {
@@ -68,8 +69,8 @@ DirectoryHasher::next()
     try {
         if (entry.is_regular_file()) {
             sha256_file(entry.path().string().c_str(), outputBuffer);
-            duplicates[std::string(outputBuffer)].push_back(
-                entry.path().string());
+            auto& hashed = duplicates->operator[](std::string(outputBuffer));
+            hashed.add_file(entry.path().string());
             progress.fetch_add(1, std::memory_order_relaxed);
 
             {

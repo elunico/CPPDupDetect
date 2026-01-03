@@ -30,12 +30,36 @@ std::size_t count_all(std::filesystem::path const& path, T const& pred)
     return count;
 }
 
+template <typename PathType, typename HashType>
+struct HashEntry {
+    HashType              hash;
+    std::size_t           byte_count;
+    std::vector<PathType> files;
+
+    bool matches(HashType const& hash) const
+    {
+        return hash == hash;
+    }
+
+    void add_file(PathType const& path)
+    {
+        byte_count += std::filesystem::file_size(path);
+        files.push_back(path);
+    }
+
+    std::size_t get_file_count() const
+    {
+        return files.size();
+    }
+};
+
 struct DirectoryHasher {
     using PathType = std::string;
     using HashType = std::string;
 
-    PathType                                            path;
-    std::unordered_map<HashType, std::vector<PathType>> duplicates;
+    using DuplicateFilesCollection = std::unordered_map<HashType, HashEntry<PathType, HashType>>;
+    PathType                                                    path;
+    std::shared_ptr<DuplicateFilesCollection> duplicates;
 
     [[nodiscard]] std::size_t get_progress() const;
 

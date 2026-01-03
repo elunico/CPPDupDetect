@@ -4,6 +4,8 @@
 #define MainUI_h
 #include <atomic>
 #include <memory>
+#include <optional>
+#include <thread>
 #ifdef WIN32
 
 #pragma comment(lib, "Gdiplus.lib")  // This can be used in Visual Studio, but
@@ -34,7 +36,7 @@ class DupDetectWindow :
     using HashType = DirectoryHasher::HashType;
     using PathType = DirectoryHasher::PathType;
     using DuplicateFilesCollection =
-        std::unordered_map<HashType, std::vector<PathType> >;
+        std::unordered_map<HashType, HashEntry<PathType, HashType> >;
 
     static int* const survivor_sentinel;
     static int* const parent_sentinel;
@@ -58,6 +60,12 @@ class DupDetectWindow :
     Fl_Tree*          My_resultsTree{};
     std::atomic<bool> scanning{false};
 
+    // Storage for weak_ptrs used in callbacks to prevent dangling pointer issues
+    std::vector<std::unique_ptr<std::weak_ptr<DupDetectWindow>>> callback_weakptrs_;
+
+    // Scanning thread - stored so we can join it on destruction
+    std::optional<std::thread> scan_thread_;
+
     // all button callbacks are prefixed with perform_
     void perform_choose_dir();
 
@@ -79,13 +87,13 @@ class DupDetectWindow :
                    std::size_t                                 progress,
                    std::size_t                                 total,
                    std::string const&                          message,
-                   DupDetectWindow::DuplicateFilesCollection&& files);
+                   std::shared_ptr<DuplicateFilesCollection> files);
 
     void delete_single_item(Fl_Tree_Item* item);
 
     void delete_hash_parent_item(Fl_Tree_Item* item, int child_count);
 
-    void updateTable(DuplicateFilesCollection const& duplicateFiles);
+    void updateTable(std::shared_ptr<DuplicateFilesCollection> duplicateFiles);
 
     void display_not_scanning();
 
@@ -104,6 +112,8 @@ class DupDetectWindow :
    public:
     DupDetectWindow(int w, int h);
     ~DupDetectWindow() noexcept override;
+
+    std::shared_ptr<DupDetectWindow::DuplicateFilesCollection> duplicates; 
 
     [[nodiscard]] static std::shared_ptr<DupDetectWindow> create();
 };

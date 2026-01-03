@@ -41,6 +41,11 @@ auto center(Fl_Window *self, Fl_Window *parent, int w, int h) -> Fl_Window*
     auto x = px + (max_x / 2) - (w / 2);
     auto y = py + (max_y / 2) - (h / 2);
 
+    assert(x > 0);
+    assert(x < Fl::w());
+    assert(y > 0);
+    assert(y < Fl::h());
+
     self->resize(x, y, w, h);
     return self;
 }
@@ -156,7 +161,16 @@ DupDetectWindow::DupDetectWindow(int w, int h)
     center(this, nullptr);
 }
 
-DupDetectWindow::~DupDetectWindow() noexcept = default;
+DupDetectWindow::~DupDetectWindow() noexcept
+{
+    // Signal the scanning thread to stop
+    scanning.store(false, std::memory_order_release);
+
+    // Wait for the scanning thread to finish if it's running
+    if (scan_thread_.has_value() && scan_thread_->joinable()) {
+        scan_thread_->join();
+    }
+}
 
 void DupDetectWindow::perform_choose_dir()
 {
@@ -194,14 +208,12 @@ void DupDetectWindow::send_done(
     std::size_t                                 progress,
     std::size_t                                 total,
     std::string const&                          message,
-    DupDetectWindow::DuplicateFilesCollection&& files)
+    std::shared_ptr<DuplicateFilesCollection> files)
 {
     assert(window != nullptr);
     // this will be freed in the callback function
     UIUpdate* update = new UIUpdate();
-    update->duplicates =
-        std::make_shared<DupDetectWindow::DuplicateFilesCollection>(
-            std::move(files));
+    update->duplicates = files;
     update->message  = message;
     update->window   = window;
     update->progress = progress;
@@ -225,8 +237,18 @@ void DupDetectWindow::perform_start_scan()
         // we should cancel the scan and update the UI
         display_not_scanning();
         scanning.store(false, std::memory_order_release);
+
+        // Wait for the scanning thread to finish
+        if (scan_thread_.has_value() && scan_thread_->joinable()) {
+            scan_thread_->join();
+        }
         return;
     } else {
+        // Join any previous scan thread before starting a new one
+        if (scan_thread_.has_value() && scan_thread_->joinable()) {
+            scan_thread_->join();
+        }
+
         // if we are not scanning we will ask for a strategy
         // update the ui and spawn a thread to start the scan
         scanning.store(true, std::memory_order_release);
@@ -236,23 +258,35 @@ void DupDetectWindow::perform_start_scan()
 
         My_startScanButton->label("Cancel Scan");
         My_resultsTree->clear();
-        std::thread t{[win = this->shared_from_this(), selectedDir]() {
+        std::thread t{[win_weak = std::weak_ptr<DupDetectWindow>(this->shared_from_this()), selectedDir]() {
+            // Try to lock the weak_ptr to get a shared_ptr
+            auto win = win_weak.lock();
+            if (!win) return;  // Window was destroyed
             // TODO: this can throw, we should probably check for that
 
             std::unique_ptr<DirectoryHasher> hasher;
             try {
                 hasher = std::make_unique<DirectoryHasher>(selectedDir);
             } catch (std::exception& e) {
-                fl_alert(
-                    "Cannot access selected directory for hashing. Ensure "
-                    "appropriate permissions or select a new directory!");
-                win->send_done(win, 0, 0, "ERROR READING DIR",
-                               DupDetectWindow::DuplicateFilesCollection{});
+                auto error_msg = std::format(
+                    "Cannot access selected directory for hashing.\n\n"
+                    "Error: {}\n\n"
+                    "Ensure appropriate permissions or select a new directory.",
+                    e.what());
+                fl_alert("%s", error_msg.c_str());
+                win->send_done(win, 0, 0, "ERROR: " + std::string(e.what()),
+                               std::shared_ptr<DuplicateFilesCollection>{});
+                return;  // Exit early if hasher construction failed
             }
             std::atomic<bool> update_ready{false};
 
-            std::thread pt{[&hasher, win, &update_ready]() {
-                while (win->scanning.load(std::memory_order_acquire)) {
+            std::thread pt{[&hasher, win_weak, &update_ready]() {
+                while (true) {
+                    auto win = win_weak.lock();
+                    if (!win || !win->scanning.load(std::memory_order_acquire)) {
+                        break;  // Window destroyed or scanning stopped
+                    }
+
                     std::this_thread::sleep_for(ui_update_delay);
                     if (update_ready.load()) {
                         win->send_progress(
@@ -267,21 +301,30 @@ void DupDetectWindow::perform_start_scan()
                 update_ready.store(true);
                 debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                              std::get<1>(*(result)));
-                // check to see if the user has cancelled
-                // if so, stop, update the ui, and end the thread
-                if (!win->scanning.load(std::memory_order::acquire)) {
+
+                // Check if window still exists and user hasn't cancelled
+                auto win_check = win_weak.lock();
+                if (!win_check || !win_check->scanning.load(std::memory_order::acquire)) {
                     break;
                 }
             }
-            win->send_done(win, hasher->get_progress(), hasher->get_total(),
-                           "<none>", std::move(hasher->duplicates));
-            // pt must be after send_done because send_done sets scanning to
-            // false breaking out of hte pt loop
+
+            // Final check that window still exists before cleanup
+            if (auto win_final = win_weak.lock()) {
+                auto unique_hash_count = hasher->duplicates->size();
+                win_final->send_done(win_final, hasher->get_progress(), hasher->get_total(),
+                               "<none>", std::move(hasher->duplicates));
+                debug_output("Hashing complete. Unique hashes found: ",
+                             unique_hash_count);
+            }
+
+            // pt must be joined after send_done because send_done sets scanning to
+            // false, breaking out of the pt loop
             pt.join();
-            debug_output("Hashing complete. Unique hashes found: ",
-                         hasher->duplicates.size());
         }};
-        t.detach();
+
+        // Store the thread instead of detaching it
+        scan_thread_ = std::move(t);
     }
 }
 
@@ -525,12 +568,12 @@ std::string DupDetectWindow::choose_survivor(
 }
 
 void DupDetectWindow::updateTable(
-    std::unordered_map<HashType, std::vector<PathType>> const& duplicateFiles)
+    std::shared_ptr<DuplicateFilesCollection> duplicateFiles)
 {
     auto progressBar = My_scanProgressBar;
     My_resultsTree->clear();
     debug_output("Updating results table...");
-    auto amount = duplicateFiles.size();
+    auto amount = duplicateFiles->size();
 
     if (amount == 0) {
         ::output("NO DUPLICATES FOUND");
@@ -544,15 +587,17 @@ void DupDetectWindow::updateTable(
         My_removeItemButton->activate();
         My_showItemButton->activate();
     }
-
+    
+    duplicates = duplicateFiles;
     int count = 0;
     reset_progress(0, amount);
     progressBar->value(amount);
     debug_output("Total unique hashes: ", amount);
-    for (const auto& [hash, files] : duplicateFiles) {
+    for (const auto& [hash, hash_entry] : *duplicateFiles) {
+        auto &files = hash_entry.files;
         debug_output("Processing hash: ", hash, " with ", files.size(),
                      " files.");
-        if (files.size() > 1) {
+        if (hash_entry.get_file_count() > 1) {
             auto text = "Hash: " + hash + " (" + std::to_string(files.size()) +
                         " files)";
             debug_output("Adding tree parent: ", text);
@@ -587,49 +632,62 @@ void DupDetectWindow::reset_progress(int min, int max)
     My_scanProgressBar->value(min);
 }
 
-/* The caller of create() MUST keep the shared_ptr alive for the duration of the
- * program Callbacks used by Fl::awake call shared_from_this() on the raw
- * pointer to DupDetectWindow. If the window is destroyed or invalidated before
- * the end the program, these callbacks can reference bad memory. */
 std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 {
     std::shared_ptr<DupDetectWindow> w = construct_window();
 
+    // Helper to create callback user data with weak_ptr for safe lifetime management
+    auto make_callback_data = [&w]() {
+        auto weak = std::make_unique<std::weak_ptr<DupDetectWindow>>(w);
+        auto* ptr = weak.get();
+        w->callback_weakptrs_.push_back(std::move(weak));
+        return ptr;
+    };
+
     w->My_showItemButton->callback(
-        []([[maybe_unused]] auto* widget, auto* win) {
-            auto ui = static_cast<DupDetectWindow*>(win)->shared_from_this();
-            ui->perform_show_item();
+        []([[maybe_unused]] auto* widget, auto* user_data) {
+            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            if (auto ui = weak_ptr->lock()) {
+                ui->perform_show_item();
+            }
         },
-        w.get());
+        make_callback_data());
 
     w->My_removeItemButton->callback(
-        []([[maybe_unused]] auto* widget, auto* win) {
-            auto ui = static_cast<DupDetectWindow*>(win)->shared_from_this();
-            ui->perform_remove_item();
+        []([[maybe_unused]] auto* widget, auto* user_data) {
+            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            if (auto ui = weak_ptr->lock()) {
+                ui->perform_remove_item();
+            }
         },
-        w.get());
+        make_callback_data());
 
     w->My_deleteItemButton->callback(
-        []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto ui = static_cast<DupDetectWindow*>(data)->shared_from_this();
-            ui->perform_delete_item();
+        []([[maybe_unused]] Fl_Widget* widget, void* user_data) {
+            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            if (auto ui = weak_ptr->lock()) {
+                ui->perform_delete_item();
+            }
         },
-        w.get());
+        make_callback_data());
 
     w->My_selectDirButton->callback(
-        []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto ui = static_cast<DupDetectWindow*>(data)->shared_from_this();
-            // Callback code for My_selectDirButton
-            ui->perform_choose_dir();
+        []([[maybe_unused]] Fl_Widget* widget, void* user_data) {
+            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            if (auto ui = weak_ptr->lock()) {
+                ui->perform_choose_dir();
+            }
         },
-        w.get());
+        make_callback_data());
 
     w->My_startScanButton->callback(
-        []([[maybe_unused]] Fl_Widget* w, void* data) {
-            auto ui = static_cast<DupDetectWindow*>(data)->shared_from_this();
-            ui->perform_start_scan();
+        []([[maybe_unused]] Fl_Widget* widget, void* user_data) {
+            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            if (auto ui = weak_ptr->lock()) {
+                ui->perform_start_scan();
+            }
         },
-        w.get());
+        make_callback_data());
 
     return w;
 }
