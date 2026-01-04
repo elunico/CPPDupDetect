@@ -30,7 +30,13 @@
 #include "uiutils.hpp"
 #include "utils.hpp"
 
-auto center(Fl_Window *self, Fl_Window *parent, int w, int h) -> Fl_Window*
+/**
+ * self is the window to be centered or the whole screen if parent is nullptr
+ * parent: The window self will be centered relative to. Optional
+ * w: the width of the self
+ * h: the height of self 
+ */
+auto center(Fl_Window* self, Fl_Window* parent, int w, int h) -> Fl_Window*
 {
     auto max_x = parent == nullptr ? Fl::w() : parent->w();
     auto max_y = parent == nullptr ? Fl::h() : parent->h();
@@ -50,6 +56,11 @@ auto center(Fl_Window *self, Fl_Window *parent, int w, int h) -> Fl_Window*
     return self;
 }
 
+/**
+ * self is the window to be centered
+ * parent is optional. self will be centered relative to the parent or the whole
+ * screen if parent is nullptr
+ */
 auto center(Fl_Window* self, Fl_Window* parent) -> Fl_Window*
 {
     return center(self, parent, self->w(), self->h());
@@ -203,22 +214,21 @@ void DupDetectWindow::send_progress(std::shared_ptr<DupDetectWindow> window,
     Fl::awake(ui_scan_update_cb, update);
 }
 
-void DupDetectWindow::send_done(
-    std::shared_ptr<DupDetectWindow>            window,
-    std::size_t                                 progress,
-    std::size_t                                 total,
-    std::string const&                          message,
-    std::shared_ptr<DuplicateFilesCollection> files)
+void DupDetectWindow::send_done(std::shared_ptr<DupDetectWindow> window,
+                                std::size_t                      progress,
+                                std::size_t                      total,
+                                std::string const&               message,
+                                std::shared_ptr<DuplicateFilesCollection> files)
 {
     assert(window != nullptr);
     // this will be freed in the callback function
-    UIUpdate* update = new UIUpdate();
+    UIUpdate* update   = new UIUpdate();
     update->duplicates = files;
-    update->message  = message;
-    update->window   = window;
-    update->progress = progress;
-    update->total    = total;
-    update->type     = UIUpdate::Type::Done;
+    update->message    = message;
+    update->window     = window;
+    update->progress   = progress;
+    update->total      = total;
+    update->type       = UIUpdate::Type::Done;
     window->scanning.store(false, std::memory_order_release);
     Fl::awake(ui_scan_update_cb, update);
 }
@@ -258,10 +268,13 @@ void DupDetectWindow::perform_start_scan()
 
         My_startScanButton->label("Cancel Scan");
         My_resultsTree->clear();
-        std::thread t{[win_weak = std::weak_ptr<DupDetectWindow>(this->shared_from_this()), selectedDir]() {
+        std::thread t{[win_weak = std::weak_ptr<DupDetectWindow>(
+                           this->shared_from_this()),
+                       selectedDir]() {
             // Try to lock the weak_ptr to get a shared_ptr
             auto win = win_weak.lock();
-            if (!win) return;  // Window was destroyed
+            if (!win)
+                return;  // Window was destroyed
             // TODO: this can throw, we should probably check for that
 
             std::unique_ptr<DirectoryHasher> hasher;
@@ -283,7 +296,8 @@ void DupDetectWindow::perform_start_scan()
             std::thread pt{[&hasher, win_weak, &update_ready]() {
                 while (true) {
                     auto win = win_weak.lock();
-                    if (!win || !win->scanning.load(std::memory_order_acquire)) {
+                    if (!win ||
+                        !win->scanning.load(std::memory_order_acquire)) {
                         break;  // Window destroyed or scanning stopped
                     }
 
@@ -304,22 +318,25 @@ void DupDetectWindow::perform_start_scan()
 
                 // Check if window still exists and user hasn't cancelled
                 auto win_check = win_weak.lock();
-                if (!win_check || !win_check->scanning.load(std::memory_order::acquire)) {
+                if (!win_check ||
+                    !win_check->scanning.load(std::memory_order_acquire)) {
                     break;
                 }
             }
 
             // Final check that window still exists before cleanup
             if (auto win_final = win_weak.lock()) {
-                auto unique_hash_count = hasher->duplicates->size();
-                win_final->send_done(win_final, hasher->get_progress(), hasher->get_total(),
-                               "<none>", std::move(hasher->duplicates));
+                DEBUG_USE_ONLY auto unique_hash_count =
+                    hasher->duplicates->size();
+                win_final->send_done(win_final, hasher->get_progress(),
+                                     hasher->get_total(), "<none>",
+                                     std::move(hasher->duplicates));
                 debug_output("Hashing complete. Unique hashes found: ",
                              unique_hash_count);
             }
 
-            // pt must be joined after send_done because send_done sets scanning to
-            // false, breaking out of the pt loop
+            // pt must be joined after send_done because send_done sets scanning
+            // to false, breaking out of the pt loop
             pt.join();
         }};
 
@@ -587,14 +604,14 @@ void DupDetectWindow::updateTable(
         My_removeItemButton->activate();
         My_showItemButton->activate();
     }
-    
+
     duplicates = duplicateFiles;
-    int count = 0;
+    int count  = 0;
     reset_progress(0, amount);
     progressBar->value(amount);
     debug_output("Total unique hashes: ", amount);
     for (const auto& [hash, hash_entry] : *duplicateFiles) {
-        auto &files = hash_entry.files;
+        auto& files = hash_entry.files;
         debug_output("Processing hash: ", hash, " with ", files.size(),
                      " files.");
         if (hash_entry.get_file_count() > 1) {
@@ -636,17 +653,19 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 {
     std::shared_ptr<DupDetectWindow> w = construct_window();
 
-    // Helper to create callback user data with weak_ptr for safe lifetime management
+    // Helper to create callback user data with weak_ptr for safe lifetime
+    // management
     auto make_callback_data = [&w]() {
-        auto weak = std::make_unique<std::weak_ptr<DupDetectWindow>>(w);
-        auto* ptr = weak.get();
+        auto  weak = std::make_unique<std::weak_ptr<DupDetectWindow>>(w);
+        auto* ptr  = weak.get();
         w->callback_weakptrs_.push_back(std::move(weak));
         return ptr;
     };
 
     w->My_showItemButton->callback(
         []([[maybe_unused]] auto* widget, auto* user_data) {
-            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            auto* weak_ptr =
+                static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
             if (auto ui = weak_ptr->lock()) {
                 ui->perform_show_item();
             }
@@ -655,7 +674,8 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 
     w->My_removeItemButton->callback(
         []([[maybe_unused]] auto* widget, auto* user_data) {
-            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            auto* weak_ptr =
+                static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
             if (auto ui = weak_ptr->lock()) {
                 ui->perform_remove_item();
             }
@@ -664,7 +684,8 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 
     w->My_deleteItemButton->callback(
         []([[maybe_unused]] Fl_Widget* widget, void* user_data) {
-            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            auto* weak_ptr =
+                static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
             if (auto ui = weak_ptr->lock()) {
                 ui->perform_delete_item();
             }
@@ -673,7 +694,8 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 
     w->My_selectDirButton->callback(
         []([[maybe_unused]] Fl_Widget* widget, void* user_data) {
-            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            auto* weak_ptr =
+                static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
             if (auto ui = weak_ptr->lock()) {
                 ui->perform_choose_dir();
             }
@@ -682,7 +704,8 @@ std::shared_ptr<DupDetectWindow> DupDetectWindow::create()
 
     w->My_startScanButton->callback(
         []([[maybe_unused]] Fl_Widget* widget, void* user_data) {
-            auto* weak_ptr = static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
+            auto* weak_ptr =
+                static_cast<std::weak_ptr<DupDetectWindow>*>(user_data);
             if (auto ui = weak_ptr->lock()) {
                 ui->perform_start_scan();
             }

@@ -32,7 +32,11 @@ inline constexpr void output([[maybe_unused]] Args&&... args)
 
 #define debug_output(...) (void) 0
 
+#define DEBUG_USE_ONLY [[maybe_unused]]
+
 #else
+
+#define DEBUG_USE_ONLY
 
 #define debug_output(...) ::output(__VA_ARGS__)
 
