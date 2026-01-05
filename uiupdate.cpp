@@ -35,10 +35,8 @@ void ui_scan_update_cb(void* data)
                 win->updateTable(std::make_shared<DupDetectWindow::DuplicateFilesCollection>());
             }
 
-            win->display_not_scanning();
             win->reset_progress(0, 1);
             win->My_currentTargetFile->value(msg->message.c_str());
-            win->display_not_scanning();
             win->My_scanProgressBar->copy_label(make_progress_label(msg->progress, msg->total).c_str());
             break;
         }

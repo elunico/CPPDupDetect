@@ -23,13 +23,14 @@ void sha256_hash_string(unsigned char hash[SHA256_DIGEST_LENGTH],
 }
 
 // adapted from: https://wiki.openssl.org/index.php/EVP_Message_Digests
-inline void digest_file(const char* path, char output[65])
+// Returns 0 on success, non-zero on failure
+inline int digest_file(const char* path, char output[65])
 {
     EVP_MD_CTX* mdctx;
     FILE*       file = fopen(path, "rb");
 
     if (file == NULL) {
-        return;  // nothing to clean up
+        return 1;  // Failed to open file
     }
 
     constexpr int buf_size   = 32768;
@@ -38,46 +39,62 @@ inline void digest_file(const char* path, char output[65])
 
     if (buffer == NULL) {
         fclose(file);
-        return;
-        // cannot jump over variable initiailizations
+        return 2;  // Failed to allocate buffer
     }
 
     unsigned char* digest;
     if ((digest = (unsigned char*) OPENSSL_malloc(EVP_MD_size(EVP_sha256()))) ==
         NULL) {
-        goto init_error;  // close file & free buffer
+        free(buffer);
+        fclose(file);
+        return 3;  // Failed to allocate digest
     }
 
-    if ((mdctx = EVP_MD_CTX_new()) == NULL)
-        goto error;  // close file, free buffer, free digest
+    if ((mdctx = EVP_MD_CTX_new()) == NULL) {
+        OPENSSL_free(digest);
+        free(buffer);
+        fclose(file);
+        return 4;  // Failed to create context
+    }
 
-    if (1 != EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL))
-        goto up_error;
+    if (1 != EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL)) {
+        EVP_MD_CTX_free(mdctx);
+        OPENSSL_free(digest);
+        free(buffer);
+        fclose(file);
+        return 5;  // Failed to initialize digest
+    }
 
     while ((bytes_read = fread(buffer, 1, buf_size, file))) {
         if (1 != EVP_DigestUpdate(mdctx, buffer, bytes_read)) {
-            goto up_error;
+            EVP_MD_CTX_free(mdctx);
+            OPENSSL_free(digest);
+            free(buffer);
+            fclose(file);
+            return 6;  // Failed to update digest
         }
     }
 
-    if (1 != EVP_DigestFinal_ex(mdctx, digest, NULL))
-        goto up_error;
+    if (1 != EVP_DigestFinal_ex(mdctx, digest, NULL)) {
+        EVP_MD_CTX_free(mdctx);
+        OPENSSL_free(digest);
+        free(buffer);
+        fclose(file);
+        return 7;  // Failed to finalize digest
+    }
 
     sha256_hash_string(digest, output);
 
-up_error:
     EVP_MD_CTX_free(mdctx);
-error:
     OPENSSL_free(digest);
-init_error:
     free(buffer);
     fclose(file);
+    return 0;  // Success
 }
 
 int sha256_file(char const* path, char outputBuffer[65])
 {
-    digest_file(path, outputBuffer);
-    return 0;
+    return digest_file(path, outputBuffer);
 }
 
 }  // extern "C"

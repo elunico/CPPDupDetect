@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -38,12 +39,19 @@ struct HashEntry {
 
     bool matches(HashType const& hash) const
     {
-        return hash == hash;
+        return this->hash == hash;
     }
 
     void add_file(PathType const& path)
     {
-        byte_count += std::filesystem::file_size(path);
+        auto file_size = std::filesystem::file_size(path);
+        // Check for overflow before adding
+        if (byte_count > std::numeric_limits<std::size_t>::max() - file_size) {
+            ::output("Warning: byte_count overflow prevented for ", path);
+            // Don't add to byte_count if it would overflow
+        } else {
+            byte_count += file_size;
+        }
         files.push_back(path);
     }
 
@@ -76,6 +84,7 @@ struct DirectoryHasher {
     std::atomic<std::size_t>                      progress;
     std::size_t                                   total;
     std::mutex                                    iterator_mutex;
+    std::mutex                                    duplicates_mutex;
 };
 
 #endif  // DUPDETECT_FILEUTILS_HPP

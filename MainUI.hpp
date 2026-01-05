@@ -38,8 +38,9 @@ class DupDetectWindow :
     using DuplicateFilesCollection =
         std::unordered_map<HashType, HashEntry<PathType, HashType> >;
 
-    static int* const survivor_sentinel;
-    static int* const parent_sentinel;
+    // Use cast integers as sentinel values to avoid heap allocation
+    inline static void* const survivor_sentinel = reinterpret_cast<void*>(1);
+    inline static void* const parent_sentinel = reinterpret_cast<void*>(2);
 
     friend void ui_scan_update_cb(void* data);
 

@@ -16,7 +16,7 @@ std::filesystem::file_time_type last_write_time_safe(std::string const& entry)
 
 std::size_t DirectoryHasher::get_progress() const
 {
-    return progress.load(std::memory_order_relaxed);
+    return progress.load(std::memory_order_acquire);
 }
 
 std::size_t DirectoryHasher::get_total() const
@@ -68,10 +68,22 @@ DirectoryHasher::next()
     char outputBuffer[65];
     try {
         if (entry.is_regular_file()) {
-            sha256_file(entry.path().string().c_str(), outputBuffer);
-            auto& hashed = duplicates->operator[](std::string(outputBuffer));
-            hashed.add_file(entry.path().string());
-            progress.fetch_add(1, std::memory_order_relaxed);
+            int hash_result = sha256_file(entry.path().string().c_str(), outputBuffer);
+            if (hash_result != 0) {
+                // Failed to hash file, skip it
+                ::output("Warning: Could not hash file. Skipping: ", entry.path().string());
+                {
+                    std::lock_guard guard{iterator_mutex};
+                    ++iterator;
+                }
+                return next();
+            }
+            {
+                std::lock_guard guard{duplicates_mutex};
+                auto& hashed = duplicates->operator[](std::string(outputBuffer));
+                hashed.add_file(entry.path().string());
+            }
+            progress.fetch_add(1, std::memory_order_release);
 
             {
                 std::lock_guard guard{iterator_mutex};

@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <chrono>
+#include <cstddef>
 #include <cstring>
 #include <format>
 #include <iostream>
@@ -34,7 +36,7 @@
  * self is the window to be centered or the whole screen if parent is nullptr
  * parent: The window self will be centered relative to. Optional
  * w: the width of the self
- * h: the height of self 
+ * h: the height of self
  */
 auto center(Fl_Window* self, Fl_Window* parent, int w, int h) -> Fl_Window*
 {
@@ -66,9 +68,6 @@ auto center(Fl_Window* self, Fl_Window* parent) -> Fl_Window*
     return center(self, parent, self->w(), self->h());
 }
 
-int* const DupDetectWindow::survivor_sentinel = new int(1);
-int* const DupDetectWindow::parent_sentinel   = new int(2);
-
 static void relabel_hash_parent(Fl_Tree_Item* item)
 {
     if (!item || !item->label()) {
@@ -86,6 +85,7 @@ static void relabel_hash_parent(Fl_Tree_Item* item)
     }
     std::string prefix(label.begin(), pos);
     std::string result = std::format("{}({} files)", prefix, item->children());
+    // FLTK's Fl_Tree_Item::label() copies the string internally
     item->label(result.c_str());
 }
 
@@ -259,6 +259,10 @@ void DupDetectWindow::perform_start_scan()
             scan_thread_->join();
         }
 
+        // clear the old results
+        My_resultsTree->clear();
+        Fl::check();
+
         // if we are not scanning we will ask for a strategy
         // update the ui and spawn a thread to start the scan
         scanning.store(true, std::memory_order_release);
@@ -266,7 +270,12 @@ void DupDetectWindow::perform_start_scan()
             return;
         }
 
+        My_removeItemButton->deactivate();
+        My_deleteItemButton->deactivate();
+        My_showItemButton->deactivate();
         My_startScanButton->label("Cancel Scan");
+        My_scanProgressBar->label(
+            "Preparing for scan. Please wait a moment...");
         My_resultsTree->clear();
         std::thread t{[win_weak = std::weak_ptr<DupDetectWindow>(
                            this->shared_from_this()),
@@ -587,29 +596,34 @@ std::string DupDetectWindow::choose_survivor(
 void DupDetectWindow::updateTable(
     std::shared_ptr<DuplicateFilesCollection> duplicateFiles)
 {
-    auto progressBar = My_scanProgressBar;
+    // don't let anything happen while the table is updating
+    My_startScanButton->deactivate();
     My_resultsTree->clear();
+    My_resultsTree->deactivate();
     debug_output("Updating results table...");
     auto amount = duplicateFiles->size();
 
     if (amount == 0) {
         ::output("NO DUPLICATES FOUND");
         My_resultsTree->add("No duplicates found!");
+        My_startScanButton->activate();
         My_deleteItemButton->deactivate();
         My_removeItemButton->deactivate();
         My_showItemButton->deactivate();
+        My_resultsTree->activate();
         return;
-    } else {
-        My_deleteItemButton->activate();
-        My_removeItemButton->activate();
-        My_showItemButton->activate();
     }
+    // activate the buttons after the populating of the table
+    // so that if it takes long they don't activate until the table is ready
 
     duplicates = duplicateFiles;
-    int count  = 0;
     reset_progress(0, amount);
-    progressBar->value(amount);
+    My_scanProgressBar->value(amount);
+    std::size_t count = 0;
     debug_output("Total unique hashes: ", amount);
+    My_scanProgressBar->minimum(0);
+    My_scanProgressBar->maximum(amount);
+    My_scanProgressBar->label("Updating table...");
     for (const auto& [hash, hash_entry] : *duplicateFiles) {
         auto& files = hash_entry.files;
         debug_output("Processing hash: ", hash, " with ", files.size(),
@@ -629,9 +643,20 @@ void DupDetectWindow::updateTable(
             sur->user_data(survivor_sentinel);
             sur->labelfgcolor(FL_BLUE);
         }
-        progressBar->value(++count);
+        My_scanProgressBar->value(++count);
+        if (count % 2500 == 0) {
+            My_resultsTree->redraw();
+            My_scanProgressBar->redraw();
+            Fl::check();  // Process pending events to update UI
+        }
     }
     debug_output("Results table update complete.");
+    display_not_scanning();
+    My_showItemButton->activate();
+    My_removeItemButton->activate();
+    My_deleteItemButton->activate();
+    My_startScanButton->activate();
+    My_resultsTree->activate();
     My_resultsTree->redraw();
 }
 
