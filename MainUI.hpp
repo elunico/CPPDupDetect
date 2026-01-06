@@ -94,7 +94,7 @@ class DupDetectWindow :
 
     void delete_hash_parent_item(Fl_Tree_Item* item, int child_count);
 
-    void updateTable(std::shared_ptr<DuplicateFilesCollection> duplicateFiles);
+    void update_table(std::shared_ptr<DuplicateFilesCollection> duplicateFiles);
 
     void display_not_scanning();
 

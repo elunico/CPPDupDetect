@@ -2,6 +2,7 @@
 #define DUPDETECT_FILEUTILS_HPP
 
 #include <atomic>
+#include <exception>
 #include <filesystem>
 #include <limits>
 #include <mutex>
@@ -11,6 +12,15 @@
 #include <vector>
 
 std::filesystem::file_time_type last_write_time_safe(std::string const& entry);
+
+struct file_hash_error: std::exception {
+    private:
+        char const *reason;
+    public:
+        char const* what() const noexcept override; 
+    explicit file_hash_error(char const* reason);
+    ~file_hash_error();  
+};
 
 template <typename T>
 std::size_t count_all(std::filesystem::path const& path, T const& pred)

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
-#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -320,18 +319,33 @@ void DupDetectWindow::perform_start_scan()
                 }
             }};
 
-            while (auto result = hasher->next()) {
-                update_ready.store(true);
+            std::optional<std::tuple<DirectoryHasher::PathType,
+                                     DirectoryHasher::HashType>>
+                result;
+            do {
+                try {
+                    result = hasher->next();
+                    if (!result.has_value()) {
+                        break;
+                    }
+                    update_ready.store(true);
+                    // Check if window still exists and user hasn't cancelled
+                    auto win_check = win_weak.lock();
+                    if (!win_check ||
+                        !win_check->scanning.load(std::memory_order_acquire)) {
+                        break;
+                    }
+                } catch (file_hash_error& err) {
+                    fl_alert("Could not compute file hash");
+                    continue;
+                } catch (...) {
+                    fl_alert("Error accessing file");
+                    continue;
+                }
                 debug_output("Hashed: ", std::get<0>(*(result)), " -> ",
                              std::get<1>(*(result)));
 
-                // Check if window still exists and user hasn't cancelled
-                auto win_check = win_weak.lock();
-                if (!win_check ||
-                    !win_check->scanning.load(std::memory_order_acquire)) {
-                    break;
-                }
-            }
+            } while (result.has_value());
 
             // Final check that window still exists before cleanup
             if (auto win_final = win_weak.lock()) {
@@ -593,7 +607,7 @@ std::string DupDetectWindow::choose_survivor(
     std::unreachable();
 }
 
-void DupDetectWindow::updateTable(
+void DupDetectWindow::update_table(
     std::shared_ptr<DuplicateFilesCollection> duplicateFiles)
 {
     // don't let anything happen while the table is updating

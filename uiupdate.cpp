@@ -30,9 +30,9 @@ void ui_scan_update_cb(void* data)
     switch (msg->type) {
         case UIUpdate::Type::Done: {
             if (msg->duplicates) {
-                win->updateTable(msg->duplicates);
+                win->update_table(msg->duplicates);
             } else {
-                win->updateTable(std::make_shared<DupDetectWindow::DuplicateFilesCollection>());
+                win->update_table(std::make_shared<DupDetectWindow::DuplicateFilesCollection>());
             }
 
             win->reset_progress(0, 1);

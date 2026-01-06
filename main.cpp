@@ -2,8 +2,13 @@
 #include "FL/fl_ask.H"
 #include "MainUI.hpp"
 
-int main()
+int main(int argc, char const* argv[])
 {
+    if (argc > 1) {
+        std::cerr << "Warning: unknown command line argument: " << argv[1]
+                  << "!\n";
+    }
+
     Fl::lock();
     /*
      * The shared_ptr<DupDetectWindow> MUST live for the duration of the program

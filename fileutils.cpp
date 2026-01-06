@@ -1,7 +1,9 @@
 #include "fileutils.hpp"
 #include <atomic>
+#include <exception>
 #include <filesystem>
 #include <mutex>
+#include <stdexcept>
 #include "shautils.hpp"
 #include "utils.hpp"
 
@@ -13,6 +15,16 @@ std::filesystem::file_time_type last_write_time_safe(std::string const& entry)
         return std::filesystem::file_time_type{};
     }
 }
+
+file_hash_error::file_hash_error(char const *reason): std::exception(), reason(reason) {
+    
+}
+
+char const* file_hash_error::what() const noexcept {
+    return reason; 
+}
+
+file_hash_error::~file_hash_error() = default; 
 
 std::size_t DirectoryHasher::get_progress() const
 {
@@ -66,53 +78,35 @@ DirectoryHasher::next()
     }
 
     char outputBuffer[65];
-    try {
-        if (entry.is_regular_file()) {
-            int hash_result = sha256_file(entry.path().string().c_str(), outputBuffer);
-            if (hash_result != 0) {
-                // Failed to hash file, skip it
-                ::output("Warning: Could not hash file. Skipping: ", entry.path().string());
-                {
-                    std::lock_guard guard{iterator_mutex};
-                    ++iterator;
-                }
-                return next();
-            }
-            {
-                std::lock_guard guard{duplicates_mutex};
-                auto& hashed = duplicates->operator[](std::string(outputBuffer));
-                hashed.add_file(entry.path().string());
-            }
-            progress.fetch_add(1, std::memory_order_release);
-
+    if (entry.is_regular_file()) {
+        int hash_result =
+            sha256_file(entry.path().string().c_str(), outputBuffer);
+        if (hash_result != 0) {
+            // Failed to hash file, skip it
             {
                 std::lock_guard guard{iterator_mutex};
-                ++iterator;
+                ++iterator; 
             }
-            return std::make_tuple(entry.path().string(),
-                                   std::string(outputBuffer));
-        } else {
-            {
-                std::lock_guard guard{iterator_mutex};
-                ++iterator;
-            }
-            return std::make_tuple(entry.path().string(), "<directory>");
+            throw file_hash_error("Failed to perform file hashing");
         }
-    } catch (std::filesystem::filesystem_error& e) {
-        // Skip files that cannot be accessed
-        ::output("Warning: Could not access file. Skipping.");
+        {
+            std::lock_guard guard{duplicates_mutex};
+            auto& hashed = duplicates->operator[](std::string(outputBuffer));
+            hashed.add_file(entry.path().string());
+        }
+        progress.fetch_add(1, std::memory_order_release);
+
         {
             std::lock_guard guard{iterator_mutex};
-            while (iterator != std::filesystem::end(iterator)) {
-                try {
-                    ++iterator;
-                    break;
-                } catch (std::filesystem::filesystem_error& e) {
-                    ::output("Warning skipping file");
-                }
-            }
+            ++iterator;
         }
-        // TODO: am i skipping one here?
-        return next();
+        return std::make_tuple(entry.path().string(),
+                               std::string(outputBuffer));
+    } else {
+        {
+            std::lock_guard guard{iterator_mutex};
+            ++iterator;
+        }
+        return std::make_tuple(entry.path().string(), "<directory>");
     }
 }
