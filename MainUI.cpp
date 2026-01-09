@@ -82,10 +82,10 @@ static void relabel_hash_parent(Fl_Tree_Item* item)
             "will terminate!");
         die();
     }
-    std::string prefix(label.begin(), pos);
-    std::string result = std::format("{}({} files)", prefix, item->children());
+    label.erase(pos, label.end());
+    label.insert(label.size(), std::format("({} files)", item->children()));
     // FLTK's Fl_Tree_Item::label() copies the string internally
-    item->label(result.c_str());
+    item->label(label.c_str());
 }
 
 std::shared_ptr<DupDetectWindow> DupDetectWindow::construct_window()
@@ -281,9 +281,9 @@ void DupDetectWindow::perform_start_scan()
                        selectedDir]() {
             // Try to lock the weak_ptr to get a shared_ptr
             auto win = win_weak.lock();
-            if (!win)
+            if (!win) {
                 return;  // Window was destroyed
-            // TODO: this can throw, we should probably check for that
+            }
 
             std::unique_ptr<DirectoryHasher> hasher;
             try {

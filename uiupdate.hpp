@@ -6,14 +6,14 @@
 #include "MainUI.hpp"
 
 struct UIUpdate {
-  enum class Type { Progress, Done } type;
-  std::size_t progress;
-  std::size_t total;
-  std::string message;
-  std::weak_ptr<DupDetectWindow> window;
-  std::shared_ptr<DupDetectWindow::DuplicateFilesCollection> duplicates;
+    enum class Type { Progress, Done } type;
+    std::size_t                                                progress;
+    std::size_t                                                total;
+    std::string                                                message;
+    std::weak_ptr<DupDetectWindow>                             window;
+    std::shared_ptr<DupDetectWindow::DuplicateFilesCollection> duplicates;
 };
 
-void ui_scan_update_cb(void *data);
+void ui_scan_update_cb(void* data);
 
-#endif 
+#endif

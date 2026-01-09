@@ -13,13 +13,14 @@
 
 std::filesystem::file_time_type last_write_time_safe(std::string const& entry);
 
-struct file_hash_error: std::exception {
-    private:
-        char const *reason;
-    public:
-        char const* what() const noexcept override; 
+struct file_hash_error : std::exception {
+   private:
+    char const* reason;
+
+   public:
+    char const* what() const noexcept override;
     explicit file_hash_error(char const* reason);
-    ~file_hash_error();  
+    ~file_hash_error();
 };
 
 template <typename T>
@@ -75,8 +76,9 @@ struct DirectoryHasher {
     using PathType = std::string;
     using HashType = std::string;
 
-    using DuplicateFilesCollection = std::unordered_map<HashType, HashEntry<PathType, HashType>>;
-    PathType                                                    path;
+    using DuplicateFilesCollection =
+        std::unordered_map<HashType, HashEntry<PathType, HashType>>;
+    PathType                                  path;
     std::shared_ptr<DuplicateFilesCollection> duplicates;
 
     [[nodiscard]] std::size_t get_progress() const;

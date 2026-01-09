@@ -1,8 +1,8 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-#include <iostream>
 #include <exception>
+#include <iostream>
 
 [[noreturn]] static inline void die()
 {

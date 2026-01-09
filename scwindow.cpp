@@ -4,12 +4,12 @@
 
 SurvivorChoiceWindow::SurvivorChoiceWindow(Fl_Window* parent)
     : Fl_Window(parent->x(), parent->y(), w, h, "Survivor Strategy"),
-    parent(parent)
+      parent(parent)
 {
-    static constexpr int padding = 20; 
+    static constexpr int padding = 20;
     set_modal();
 
-    auto *out = new Fl_Output(padding, 10, w - padding * 2, 30);
+    auto* out = new Fl_Output(padding, 10, w - padding * 2, 30);
     out->box(FL_NO_BOX);
     out->value("Select a survivor strategy");
 
@@ -22,7 +22,8 @@ SurvivorChoiceWindow::SurvivorChoiceWindow(Fl_Window* parent)
     choices->add("Random File Survives");
     choices->value(0);
 
-    go_button = new Fl_Button(((w / 2) - (120 / 2)) + padding, 80, 100, 30, "OK");
+    go_button =
+        new Fl_Button(((w / 2) - (120 / 2)) + padding, 80, 100, 30, "OK");
     go_button->callback(
         []([[maybe_unused]] auto* widget, void* win) {
             auto* window = static_cast<SurvivorChoiceWindow*>(win);
@@ -39,7 +40,7 @@ bool SurvivorChoiceWindow::was_cancelled() const
     return m_was_cancelled;
 }
 
-void SurvivorChoiceWindow::show_and_wait() 
+void SurvivorChoiceWindow::show_and_wait()
 {
     Fl_Window::show();
     while (shown()) {

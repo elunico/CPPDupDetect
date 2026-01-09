@@ -1,11 +1,13 @@
 #include "uiupdate.hpp"
 #include <atomic>
 #include <memory>
+#include <utility>
 #include "MainUI.hpp"
 
 static std::string make_progress_label(int progress, int total)
 {
-    return std::format("Scan Progress {:.0f}% ({:Ld}/{:Ld})", ((double(progress) / total) * 100.0), progress, total);
+    return std::format("Scan Progress {:.0f}% ({:Ld}/{:Ld})",
+                       ((double(progress) / total) * 100.0), progress, total);
 }
 
 /**
@@ -32,13 +34,15 @@ void ui_scan_update_cb(void* data)
             if (msg->duplicates) {
                 win->update_table(msg->duplicates);
             } else {
-                win->update_table(std::make_shared<DupDetectWindow::DuplicateFilesCollection>());
+                win->update_table(std::make_shared<
+                                  DupDetectWindow::DuplicateFilesCollection>());
             }
 
             win->reset_progress(0, 1);
             win->My_currentTargetFile->value(msg->message.c_str());
-            win->My_scanProgressBar->copy_label(make_progress_label(msg->progress, msg->total).c_str());
-            break;
+            win->My_scanProgressBar->copy_label(
+                make_progress_label(msg->progress, msg->total).c_str());
+            return;
         }
         case UIUpdate::Type::Progress: {
             if (win->scanning.load(std::memory_order_acquire)) {
@@ -46,11 +50,13 @@ void ui_scan_update_cb(void* data)
                 // not modify the UI in the progress update, it will be usurped
                 // the done update
                 win->reset_progress(0, msg->total);
-                win->My_scanProgressBar->copy_label(make_progress_label(msg->progress, msg->total).c_str());
+                win->My_scanProgressBar->copy_label(
+                    make_progress_label(msg->progress, msg->total).c_str());
                 win->My_scanProgressBar->value(msg->progress);
                 win->My_currentTargetFile->value(msg->message.c_str());
             }
-            break;
+            return;
         }
     }
+    std::unreachable();
 }

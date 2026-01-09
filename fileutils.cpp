@@ -16,15 +16,17 @@ std::filesystem::file_time_type last_write_time_safe(std::string const& entry)
     }
 }
 
-file_hash_error::file_hash_error(char const *reason): std::exception(), reason(reason) {
-    
+file_hash_error::file_hash_error(char const* reason)
+    : std::exception(), reason(reason)
+{
 }
 
-char const* file_hash_error::what() const noexcept {
-    return reason; 
+char const* file_hash_error::what() const noexcept
+{
+    return reason;
 }
 
-file_hash_error::~file_hash_error() = default; 
+file_hash_error::~file_hash_error() = default;
 
 std::size_t DirectoryHasher::get_progress() const
 {
@@ -85,7 +87,7 @@ DirectoryHasher::next()
             // Failed to hash file, skip it
             {
                 std::lock_guard guard{iterator_mutex};
-                ++iterator; 
+                ++iterator;
             }
             throw file_hash_error("Failed to perform file hashing");
         }
@@ -94,7 +96,7 @@ DirectoryHasher::next()
             auto& hashed = duplicates->operator[](std::string(outputBuffer));
             hashed.add_file(entry.path().string());
         }
-        progress.fetch_add(1, std::memory_order_release);
+        ++progress; 
 
         {
             std::lock_guard guard{iterator_mutex};

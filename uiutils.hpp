@@ -3,7 +3,6 @@
 
 #include <FL/Fl.H>
 #include <FL/fl_ask.H>
-#include <cstdio>
 
 struct ConfirmToken {
     bool auto_yes = false;
