@@ -1,8 +1,13 @@
 #ifndef FILE_PLATFORM_H
 #define FILE_PLATFORM_H
 
+
+// WARNING: please do not clang-format this file. The order of #includes
+// is semantically meaningful on Windows and clang-format can sort #includes
+
 #include <cstring>
 #include <string>
+#include <unordered_set>
 
 using PlatformUnavailableCallback = void (*)(char const*);
 
@@ -12,12 +17,14 @@ void set_on_platform_unavailable(PlatformUnavailableCallback callback);
 // Helper function to escape shell metacharacters for use in double-quoted strings
 inline static std::string shell_escape(char const* path)
 {
+    static std::unordered_set<char> illegals{{'"', '\\', '$', '`', '@', '#', '(', ')', '!', '?', '|', '&'}};
     std::string result;
     result.reserve(std::strlen(path) * 2); // Reserve space for potential escaping
 
     for (const char* p = path; *p != '\0'; ++p) {
         // Escape characters that are special within double quotes
-        if (*p == '"' || *p == '\\' || *p == '$' || *p == '`') {
+        if (illegals.contains(*p)) {
+//        if (*p == '"' || *p == '\\' || *p == '$' || *p == '`') {
             result += '\\';
         }
         result += *p;
