@@ -1,4 +1,4 @@
-#include "fileutils.hpp"
+#include "directoryhasher.hpp"
 #include <atomic>
 #include <exception>
 #include <filesystem>
@@ -96,7 +96,7 @@ DirectoryHasher::next()
             auto& hashed = duplicates->operator[](std::string(outputBuffer));
             hashed.add_file(entry.path().string());
         }
-        ++progress; 
+        ++progress;
 
         {
             std::lock_guard guard{iterator_mutex};

@@ -3,7 +3,7 @@
 
 #include <memory>
 #include <string>
-#include "MainUI.hpp"
+#include "dupdetectwindow.hpp"
 
 struct UIUpdate {
     enum class Type { Progress, Done } type;

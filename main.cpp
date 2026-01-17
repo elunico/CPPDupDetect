@@ -1,6 +1,6 @@
 #include "file-platform.hpp"
 #include "FL/fl_ask.H"
-#include "MainUI.hpp"
+#include "dupdetectwindow.hpp"
 
 int main(int argc, char const* argv[])
 {

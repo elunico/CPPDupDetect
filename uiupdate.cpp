@@ -2,7 +2,7 @@
 #include <atomic>
 #include <memory>
 #include <utility>
-#include "MainUI.hpp"
+#include "dupdetectwindow.hpp"
 
 static std::string make_progress_label(int progress, int total)
 {
