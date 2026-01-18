@@ -1,7 +1,6 @@
 #ifndef FILE_PLATFORM_H
 #define FILE_PLATFORM_H
 
-
 // WARNING: please do not clang-format this file. The order of #includes
 // is semantically meaningful on Windows and clang-format can sort #includes
 
@@ -14,17 +13,20 @@ using PlatformUnavailableCallback = void (*)(char const*);
 extern PlatformUnavailableCallback on_platform_unavailable;
 void set_on_platform_unavailable(PlatformUnavailableCallback callback);
 
-// Helper function to escape shell metacharacters for use in double-quoted strings
+// Helper function to escape shell metacharacters for use in double-quoted
+// strings
 inline static std::string shell_escape(char const* path)
 {
-    static std::unordered_set<char> illegals{{'"', '\\', '$', '`', '@', '#', '(', ')', '!', '?', '|', '&'}};
+    static std::unordered_set<char> illegals{
+        {'"', '\\', '$', '`', '@', '#', '(', ')', '!', '?', '|', '&'}};
     std::string result;
-    result.reserve(std::strlen(path) * 2); // Reserve space for potential escaping
+    result.reserve(std::strlen(path) *
+                   2);  // Reserve space for potential escaping
 
     for (const char* p = path; *p != '\0'; ++p) {
         // Escape characters that are special within double quotes
         if (illegals.contains(*p)) {
-//        if (*p == '"' || *p == '\\' || *p == '$' || *p == '`') {
+            //        if (*p == '"' || *p == '\\' || *p == '$' || *p == '`') {
             result += '\\';
         }
         result += *p;
@@ -36,8 +38,8 @@ inline static std::string shell_escape(char const* path)
 
 extern "C" {
 
-#include <Windows.h>
 #include <shellapi.h>
+#include <Windows.h>
 #include <format>
 #include <stdexcept>
 
@@ -46,11 +48,13 @@ inline static void reveal_file(char const* path)
     // ShellExecuteA doesn't execute through cmd.exe, so it's safer
     // But we still should be cautious with the path
     std::string escaped = shell_escape(path);
-    ShellExecuteA(NULL, "open", "explorer.exe", std::format("/select \"{}\"", escaped).c_str(), NULL, SW_SHOWDEFAULT);
+    ShellExecuteA(NULL, "open", "explorer.exe",
+                  std::format("/select \"{}\"", escaped).c_str(), NULL,
+                  SW_SHOWDEFAULT);
 
     // see
     // https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecutea?redirectedfrom=MSDN
-    //if (result <= 32) {
+    // if (result <= 32) {
     //    throw std::runtime_error("Cannot open path");
     //}
 }

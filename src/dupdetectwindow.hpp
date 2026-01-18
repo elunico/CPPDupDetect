@@ -26,7 +26,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "directoryhasher.hpp"
+#include "components/mytree.hpp"
+#include "files/directoryhasher.hpp"
 #include "scwindow.hpp"
 
 class DupDetectWindow :
@@ -37,10 +38,6 @@ class DupDetectWindow :
     using PathType = DirectoryHasher::PathType;
     using DuplicateFilesCollection =
         std::unordered_map<HashType, HashEntry<PathType, HashType>>;
-
-    // Use cast integers as sentinel values to avoid heap allocation
-    inline static void* const survivor_sentinel = reinterpret_cast<void*>(1);
-    inline static void* const parent_sentinel   = reinterpret_cast<void*>(2);
 
     friend void ui_scan_update_cb(void* data);
 
@@ -58,7 +55,7 @@ class DupDetectWindow :
     Fl_Button*        My_deleteItemButton{};
     Fl_Button*        My_removeItemButton{};
     Fl_Button*        My_showItemButton{};
-    Fl_Tree*          My_resultsTree{};
+    MyTree*           My_resultsTree{};
     std::atomic<bool> scanning{false};
 
     // Storage for weak_ptrs used in callbacks to prevent dangling pointer
@@ -92,9 +89,9 @@ class DupDetectWindow :
                    std::string const&                        message,
                    std::shared_ptr<DuplicateFilesCollection> files);
 
-    void delete_single_item(Fl_Tree_Item* item);
+    void delete_single_item(MyTreeItem* item);
 
-    void delete_hash_parent_item(Fl_Tree_Item* item, int child_count);
+    void delete_hash_parent_item(MyTreeItem* item, int child_count);
 
     void update_table(std::shared_ptr<DuplicateFilesCollection> duplicateFiles);
 
@@ -105,8 +102,8 @@ class DupDetectWindow :
     [[nodiscard]] std::string choose_survivor(
         std::vector<std::string> const& files) const;
 
-    std::string choose_survivor_after_delete(Fl_Tree_Item* parent,
-                                             Fl_Tree_Item* old_survivor);
+    std::string choose_survivor_after_delete(MyTreeItem* parent,
+                                             MyTreeItem* old_survivor);
 
     [[nodiscard]] bool ask_for_choice();
 

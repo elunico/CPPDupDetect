@@ -3,9 +3,7 @@
 #include <exception>
 #include <filesystem>
 #include <mutex>
-#include <stdexcept>
 #include "shautils.hpp"
-#include "utils.hpp"
 
 std::filesystem::file_time_type last_write_time_safe(std::string const& entry)
 {

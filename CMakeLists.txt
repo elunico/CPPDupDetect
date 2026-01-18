@@ -2,11 +2,10 @@ cmake_minimum_required(VERSION 3.14)
 
 project(cppdupdetect)
 
-include_directories(.)
-
+include_directories(GLOB_RECURSE ./src)
 option(RELEASE_BUILD "Build in release mode" OFF)
 
-file(GLOB SOURCES "./*.cpp")
+file(GLOB_RECURSE SOURCES "./src/**.cpp")
 
 if(WIN32)
 set(CMAKE_CXX_STANDARD 23)
